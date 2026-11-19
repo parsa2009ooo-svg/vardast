@@ -61,7 +61,7 @@ LANGUAGES = {
 
 client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=st.secrets["GROQ-API-KEY"]
+    api_key=st.secrets["GROQ_API_KEY"]
 )
 
 # مدیریت حافظه
