@@ -3,9 +3,9 @@ from openai import OpenAI
 import os
 
 # ==========================================
-# ۱. تنظیمات ظاهری و فونت‌ها
+# ۱. تنظیمات ظاهری و فونت‌ها (آیکون به جادو تغییر کرد)
 # ==========================================
-st.set_page_config(page_title="Vardast | ور دست", layout="wide")
+st.set_page_config(page_title="Vardast | ور دست", page_icon="✨", layout="wide")
 
 st.markdown("""
     <style>
@@ -21,7 +21,7 @@ st.markdown("""
 # ==========================================
 LANGUAGES = {
     "English": {
-        "title": "Vardast 👁️", "caption": "A smart assistant for you, free and accessible.",
+        "title": "Vardast ✨", "caption": "A smart assistant for you, free and accessible.",
         "language": "App Language", "theme": "Theme Mode", "tone": "Response Tone",
         "tone_opts": {"Friendly": "Friendly and casual", "Professional": "Formal and professional", "Creative": "Creative and poetic", "Direct": "Short and direct"},
         "new_chat": "➕ New Chat", "chat_list": "Chat History", "clear_chat": "🗑️ Clear this chat",
@@ -29,7 +29,7 @@ LANGUAGES = {
         "system_prompt": "You are a smart assistant named 'Vardast'. Your answers must be accurate, helpful, and of high quality. Your tone should be {tone}."
     },
     "فارسی": {
-        "title": "ور دست 👁️", "caption": "دستیار هوشمند، رایگان و در دسترس همه",
+        "title": "ور دست ✨", "caption": "دستیار هوشمند، رایگان و در دسترس همه",
         "language": "زبان برنامه", "theme": "تم رنگی", "tone": "لحن پاسخ‌دهی",
         "tone_opts": {"دوستانه": "دوستانه و صمیمی", "حرفه‌ای": "رسمی و حرفه‌ای", "خلاقانه": "خلاقانه و شاعرانه", "مستقیم": "کوتاه و مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه چت‌ها", "clear_chat": "🗑️ پاک کردن این چت",
@@ -136,7 +136,10 @@ if prompt := st.chat_input(t["placeholder"]):
     with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
-                model="llama-3.3-70b-versatile", messages=api_messages, temperature=1.0, stream=True,
+                model="openai/gpt-oss-120b", # <--- مدل فعال
+                messages=api_messages, 
+                temperature=1.0, 
+                stream=True,
             )
             response = st.write_stream(stream)
             current_messages.append({"role": "assistant", "content": response})
