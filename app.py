@@ -29,7 +29,7 @@ LANGUAGES = {
         "tone_opts": {"Friendly": "Friendly and casual", "Professional": "Formal and professional", "Creative": "Creative and poetic", "Direct": "Short and direct"},
         "new_chat": "➕ New Chat", "chat_list": "Chat History", "clear_chat": "🗑️ Clear this chat",
         "force_fa": "Force Persian Input (فارسی بنویس)", "placeholder": "Type your message or ask for an image...",
-        "system_prompt": "You are a smart assistant named 'Vardast'. You can see and analyze images. If the user asks for current information, use your browser_search tool. IMPORTANT: When you use web search, only cite the actual source URLs provided in the search results. DO NOT generate fake citation IDs like [3†L21-L25]. If the user asks you to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Your tone should be {tone}.",
+        "system_prompt": "You are a smart assistant named 'Vardast'. You can see and analyze images. If the user asks for current information, use your internal knowledge but acknowledge if it might be outdated. If the user asks you to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Your tone should be {tone}.",
         "creator": "Made with ❤️ by Parsa"
     },
     "فارسی": {
@@ -38,7 +38,7 @@ LANGUAGES = {
         "tone_opts": {"دوستانه": "دوستانه و صمیمی", "حرفه‌ای": "رسمی و حرفه‌ای", "خلاقانه": "خلاقانه و شاعرانه", "مستقیم": "کوتاه و مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه چت‌ها", "clear_chat": "🗑️ پاک کردن این چت",
         "force_fa": "ورودی انگلیسی (English input)", "placeholder": "پیامت رو بنویس یا بخواه عکس بسازه...",
-        "system_prompt": "تو یک دستیار هوشمند به نام 'ور دست' هستی. تو می‌توانی تصاویر را ببینی و تحلیل کنی. اگر کاربر اطلاعات به‌روز خواست، از ابزار browser_search استفاده کن. بسیار مهم: هنگام استفاده از جستجوی وب، فقط به آدرس‌های اینترنتی واقعی که در نتایج جستجو آمده است استناد کن. هرگز ارجاع‌های ساختگی مثل [3†L21-L25] تولید نکن. اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن تو باید {tone} باشد.",
+        "system_prompt": "تو یک دستیار هوشمند به نام 'ور دست' هستی. تو می‌توانی تصاویر را ببینی و تحلیل کنی. اگر کاربر اطلاعات به‌روز خواست، از دانش خودت استفاده کن ولی اگر ممکنه اطلاعاتت قدیمی باشه به کاربر بگو. اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن تو باید {tone} باشد.",
         "creator": "ساخته شده با ❤️ توسط پارسا"
     }
 }
@@ -186,8 +186,7 @@ if prompt:
                 messages=api_messages, 
                 temperature=1.0, 
                 stream=True,
-                tools=[{"type": "browser_search"}],
-                tool_choice="auto"
+                # ابزار جستجو موقتاً حذف شد تا خطای 400 رفع شود
             )
             response = st.write_stream(stream)
             current_messages.append({"role": "assistant", "content": response})
