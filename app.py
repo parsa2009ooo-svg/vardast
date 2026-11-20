@@ -3,19 +3,58 @@ from openai import OpenAI
 import os
 import urllib.parse
 import base64
+import PyPDF2
+import io
 
 # ==========================================
-# ۱. تنظیمات ظاهری
+# ۱. تنظیمات ظاهری (طراحی مدرن)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="✨", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
+    
+    /* فونت و جهت‌دهی */
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
-    [data-testid="stChatMessage"] { border-radius: 15px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .stChatInput { border-radius: 20px; }
+    
+    /* هدر گرادیانتی */
+    .header-style {
+        background: linear-gradient(90deg, #1E232F 0%, #0E1117 100%);
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        border: 1px solid #2C333F;
+    }
+    
+    /* حباب‌های چت */
+    [data-testid="stChatMessage"] {
+        border-radius: 20px;
+        padding: 15px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    /* دکمه‌های شیشه‌ای منوی کناری */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: rgba(255,255,255,0.05);
+        color: white;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        transition: all 0.3s ease;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: rgba(255,255,255,0.1);
+        border-color: #4A90E2;
+    }
+    
+    /* کادر ورودی */
+    .stChatInput {
+        border-radius: 20px;
+        box-shadow: 0 0 15px rgba(74, 144, 226, 0.2);
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -24,37 +63,34 @@ st.markdown("""
 # ==========================================
 LANGUAGES = {
     "English": {
-        "title": "Vardast ✨", "caption": "A smart assistant for you, free and accessible.",
-        "language": "App Language", "theme": "Theme Mode", "tone": "Response Tone",
-        "tone_opts": {"Friendly": "Friendly and casual", "Professional": "Formal and professional", "Creative": "Creative and poetic", "Direct": "Short and direct"},
-        "new_chat": "➕ New Chat", "chat_list": "Chat History", "clear_chat": "🗑️ Clear this chat",
-        "force_fa": "Force Persian Input (فارسی بنویس)", "placeholder": "Type your message or ask for an image...",
-        "system_prompt": "You are a smart assistant named 'Vardast'. You can see and analyze images. If the user asks for current information, use your internal knowledge but acknowledge if it might be outdated. If the user asks you to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Your tone should be {tone}.",
+        "title": "Vardast ✨", "caption": "Your smart, free assistant.",
+        "language": "Language", "theme": "Theme", "tone": "Tone",
+        "tone_opts": {"Friendly": "Friendly", "Professional": "Professional", "Creative": "Creative", "Direct": "Direct"},
+        "new_chat": "➕ New Chat", "chat_list": "History", "clear_chat": "🗑️ Clear Chat",
+        "force_fa": "Force Persian Input", "placeholder": "Type here...",
+        "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
         "creator": "Made with ❤️ by Parsa"
     },
     "فارسی": {
         "title": "ور دست ✨", "caption": "دستیار هوشمند، رایگان و در دسترس همه",
-        "language": "زبان برنامه", "theme": "تم رنگی", "tone": "لحن پاسخ‌دهی",
-        "tone_opts": {"دوستانه": "دوستانه و صمیمی", "حرفه‌ای": "رسمی و حرفه‌ای", "خلاقانه": "خلاقانه و شاعرانه", "مستقیم": "کوتاه و مستقیم"},
-        "new_chat": "➕ چت جدید", "chat_list": "تاریخچه چت‌ها", "clear_chat": "🗑️ پاک کردن این چت",
-        "force_fa": "ورودی انگلیسی (English input)", "placeholder": "پیامت رو بنویس یا بخواه عکس بسازه...",
-        "system_prompt": "تو یک دستیار هوشمند به نام 'ور دست' هستی. تو می‌توانی تصاویر را ببینی و تحلیل کنی. اگر کاربر اطلاعات به‌روز خواست، از دانش خودت استفاده کن ولی اگر ممکنه اطلاعاتت قدیمی باشه به کاربر بگو. اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن تو باید {tone} باشد.",
+        "language": "زبان", "theme": "تم", "tone": "لحن",
+        "tone_opts": {"دوستانه": "دوستانه", "حرفه‌ای": "حرفه‌ای", "خلاقانه": "خلاقانه", "مستقیم": "مستقیم"},
+        "new_chat": "➕ چت جدید", "chat_list": "تاریخچه", "clear_chat": "🗑️ پاک کردن",
+        "force_fa": "ورودی انگلیسی", "placeholder": "اینجا بنویس...",
+        "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
         "creator": "ساخته شده با ❤️ توسط پارسا"
     }
 }
 
 # ==========================================
-# ۳. تنظیمات کلید API
+# ۳. تنظیمات API
 # ==========================================
 try:
     api_key = st.secrets["GROQ_API_KEY"]
 except Exception:
     api_key = os.environ.get("GROQ_API_KEY")
 
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=api_key
-)
+client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 
 # ==========================================
 # ۴. مدیریت حافظه
@@ -86,7 +122,6 @@ with st.sidebar:
     st.divider()
     
     theme_choice = st.radio(t["theme"], ["Dark", "Light"], horizontal=True)
-    
     st.write(f"**{t['tone']}**")
     tone_labels = list(t["tone_opts"].keys())
     tone_choice = st.radio("", tone_labels, horizontal=True, label_visibility="collapsed")
@@ -97,7 +132,7 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.markdown(f"<div style='text-align: center; color: gray; font-size: 14px;'>{t['creator']}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align: center; color: gray; font-size: 13px;'>{t['creator']}</div>", unsafe_allow_html=True)
 
 # ==========================================
 # ۶. اعمال تم
@@ -110,8 +145,10 @@ else:
 # ==========================================
 # ۷. هدر
 # ==========================================
+st.markdown('<div class="header-style">', unsafe_allow_html=True)
 st.title(t["title"])
 st.caption(t["caption"])
+st.markdown('</div>', unsafe_allow_html=True)
 
 if selected_lang == "English":
     force_persian = st.checkbox(t["force_fa"], value=False)
@@ -139,9 +176,9 @@ for message in current_messages:
             else: st.markdown(message["content"])
 
 # ==========================================
-# ۹. دریافت ورودی (با قابلیت آپلود فایل)
+# ۹. دریافت ورودی (با قابلیت آپلود فایل و PDF)
 # ==========================================
-prompt = st.chat_input(t["placeholder"], accept_file=True, file_type=["jpg", "jpeg", "png"])
+prompt = st.chat_input(t["placeholder"], accept_file=True, file_type=["jpg", "jpeg", "png", "pdf"])
 
 if prompt:
     user_text = prompt.text if prompt.text else ""
@@ -149,11 +186,12 @@ if prompt:
     
     display_content = user_text
     if user_files:
-        display_content += f"\n[تصویر پیوست شد]"
+        display_content += f"\n[فایل پیوست شد]"
     
-    api_content = [{"type": "text", "text": user_text if user_text else "این تصویر را تحلیل کن."}]
+    api_content = [{"type": "text", "text": user_text if user_text else "این فایل را تحلیل کن."}]
     
     for file in user_files:
+        # پردازش تصویر
         if file.type.startswith("image"):
             image_bytes = file.getvalue()
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
@@ -161,6 +199,20 @@ if prompt:
                 "type": "image_url",
                 "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
             })
+        # پردازش PDF
+        elif file.type == "application/pdf":
+            try:
+                pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.getvalue()))
+                pdf_text = ""
+                for page in pdf_reader.pages:
+                    pdf_text += page.extract_text() + "\n"
+                
+                api_content.append({
+                    "type": "text",
+                    "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..."  # محدود کردن به ۲۰۰۰ کاراکتر اول
+                })
+            except Exception as e:
+                st.error(f"خطا در خواندن PDF: {e}")
     
     current_messages.append({"role": "user", "content": display_content})
     with st.chat_message("user"):
@@ -186,7 +238,7 @@ if prompt:
                 messages=api_messages, 
                 temperature=1.0, 
                 stream=True,
-                # ابزار جستجو موقتاً حذف شد تا خطای 400 رفع شود
+                max_tokens=600
             )
             response = st.write_stream(stream)
             current_messages.append({"role": "assistant", "content": response})
