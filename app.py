@@ -2,6 +2,7 @@ import streamlit as st
 from openai import OpenAI
 import os
 import urllib.parse
+import base64
 
 # ==========================================
 # ۱. تنظیمات ظاهری
@@ -28,7 +29,7 @@ LANGUAGES = {
         "tone_opts": {"Friendly": "Friendly and casual", "Professional": "Formal and professional", "Creative": "Creative and poetic", "Direct": "Short and direct"},
         "new_chat": "➕ New Chat", "chat_list": "Chat History", "clear_chat": "🗑️ Clear this chat",
         "force_fa": "Force Persian Input (فارسی بنویس)", "placeholder": "Type your message or ask for an image...",
-        "system_prompt": "You are a smart assistant named 'Vardast'. You have access to the web. If the user asks for current information, use your browser_search tool. If the user asks you to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Your tone should be {tone}.",
+        "system_prompt": "You are a smart assistant named 'Vardast'. You can see and analyze images. If the user asks for current information, use your browser_search tool. IMPORTANT: When you use web search, only cite the actual source URLs provided in the search results. DO NOT generate fake citation IDs like [3†L21-L25]. If the user asks you to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Your tone should be {tone}.",
         "creator": "Made with ❤️ by Parsa"
     },
     "فارسی": {
@@ -37,7 +38,7 @@ LANGUAGES = {
         "tone_opts": {"دوستانه": "دوستانه و صمیمی", "حرفه‌ای": "رسمی و حرفه‌ای", "خلاقانه": "خلاقانه و شاعرانه", "مستقیم": "کوتاه و مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه چت‌ها", "clear_chat": "🗑️ پاک کردن این چت",
         "force_fa": "ورودی انگلیسی (English input)", "placeholder": "پیامت رو بنویس یا بخواه عکس بسازه...",
-        "system_prompt": "تو یک دستیار هوشمند به نام 'ور دست' هستی. تو به وب دسترسی داری. اگر کاربر اطلاعات به‌روز خواست، از ابزار browser_search استفاده کن. اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن تو باید {tone} باشد.",
+        "system_prompt": "تو یک دستیار هوشمند به نام 'ور دست' هستی. تو می‌توانی تصاویر را ببینی و تحلیل کنی. اگر کاربر اطلاعات به‌روز خواست، از ابزار browser_search استفاده کن. بسیار مهم: هنگام استفاده از جستجوی وب، فقط به آدرس‌های اینترنتی واقعی که در نتایج جستجو آمده است استناد کن. هرگز ارجاع‌های ساختگی مثل [3†L21-L25] تولید نکن. اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن تو باید {tone} باشد.",
         "creator": "ساخته شده با ❤️ توسط پارسا"
     }
 }
@@ -140,40 +141,53 @@ for message in current_messages:
 # ==========================================
 # ۹. دریافت ورودی (با قابلیت آپلود فایل)
 # ==========================================
-prompt = st.chat_input(t["placeholder"], accept_file=True, file_type=["jpg", "jpeg", "png", "pdf"])
+prompt = st.chat_input(t["placeholder"], accept_file=True, file_type=["jpg", "jpeg", "png"])
 
 if prompt:
     user_text = prompt.text if prompt.text else ""
     user_files = prompt.files if prompt.files else []
     
-    # اگر فایل آپلود شده بود، نامش را به متن اضافه می‌کنیم تا مدل بداند
+    display_content = user_text
     if user_files:
-        file_names = [f.name for f in user_files]
-        user_text += f"\n[Files attached: {', '.join(file_names)}]"
+        display_content += f"\n[تصویر پیوست شد]"
     
-    current_messages.append({"role": "user", "content": user_text})
+    api_content = [{"type": "text", "text": user_text if user_text else "این تصویر را تحلیل کن."}]
+    
+    for file in user_files:
+        if file.type.startswith("image"):
+            image_bytes = file.getvalue()
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            api_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
+            })
+    
+    current_messages.append({"role": "user", "content": display_content})
     with st.chat_message("user"):
-        if direction == "rtl": st.markdown(f"<div class='rtl'>{user_text}</div>", unsafe_allow_html=True)
-        else: st.markdown(user_text)
+        if direction == "rtl": st.markdown(f"<div class='rtl'>{display_content}</div>", unsafe_allow_html=True)
+        else: st.markdown(display_content)
         for file in user_files:
             if file.type.startswith("image"):
                 st.image(file)
 
     sys_prompt = t["system_prompt"].format(tone=tone_value)
-    if direction == "rtl": sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
-    
-    api_messages = [{"role": "system", "content": sys_prompt}] + [
-        {"role": m["role"], "content": m["content"]} for m in current_messages
-    ]
+    if direction == "rtl": 
+        sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
+
+    api_messages = [{"role": "system", "content": sys_prompt}]
+    for m in current_messages[:-1]:
+        api_messages.append({"role": m["role"], "content": m["content"]})
+    api_messages.append({"role": "user", "content": api_content})
 
     with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="qwen/qwen3.8-27b",
                 messages=api_messages, 
                 temperature=1.0, 
                 stream=True,
-                tools=[{"type": "browser_search"}], # فعال‌سازی جستجوی وب
+                tools=[{"type": "browser_search"}],
+                tool_choice="auto"
             )
             response = st.write_stream(stream)
             current_messages.append({"role": "assistant", "content": response})
