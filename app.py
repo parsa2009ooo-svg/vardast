@@ -47,7 +47,7 @@ LANGUAGES = {
         "language": "Language", "theme": "Theme", "tone": "Tone",
         "tone_opts": {"Friendly": "Friendly", "Professional": "Professional", "Creative": "Creative", "Direct": "Direct"},
         "new_chat": "➕ New Chat", "chat_list": "History", "clear_chat": "🗑️ Clear Chat",
-        "force_fa": "Force Persian Input", "placeholder": "Type your message here... (Shift+Enter for new line)",
+        "force_fa": "Force Persian Input", "placeholder": "Type your message here...",
         "send_btn": "Send 🚀", "upload_label": "Attach file (Optional)",
         "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
         "copy_btn": "📋", "listen_btn": "🔊",
@@ -59,7 +59,7 @@ LANGUAGES = {
         "language": "زبان", "theme": "تم", "tone": "لحن",
         "tone_opts": {"دوستانه": "دوستانه", "حرفه‌ای": "حرفه‌ای", "خلاقانه": "خلاقانه", "مستقیم": "مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه", "clear_chat": "🗑️ پاک کردن",
-        "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید... (برای خط جدید Shift+Enter بزنید)",
+        "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید...",
         "send_btn": "ارسال 🚀", "upload_label": "📎 پیوست فایل (اختیاری)",
         "welcome": "👋 سلام! من **ور دست** هستم. چطور می‌تونم امروز کمکت کنم؟",
         "copy_btn": "📋", "listen_btn": "🔊",
@@ -83,6 +83,10 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 # ==========================================
 if "chats" not in st.session_state: st.session_state.chats = {"Chat 1": []}
 if "current_chat" not in st.session_state: st.session_state.current_chat = "Chat 1"
+
+# کلید پویا برای کادر متن (برای جلوگیری از خطا)
+if "input_key_counter" not in st.session_state:
+    st.session_state.input_key_counter = 0
 
 # ==========================================
 # ۵. منوی کناری
@@ -185,52 +189,44 @@ for i, message in enumerate(current_messages):
                             st.error(f"خطا در پخش صدا: {e}")
 
 # ==========================================
-# ۹. کادر ورودی و ارسال (اصلاح نهایی)
+# ۹. کادر ورودی و ارسال (روش کلید پویا)
 # ==========================================
 st.write("")
 
 with st.expander(t["upload_label"], expanded=False):
     uploaded_files = st.file_uploader("", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
-# کادر متن
-user_text = st.text_area(t["placeholder"], height=100, key="input_text", label_visibility="collapsed")
+# استفاده از کلید پویا برای جلوگیری از خطا
+current_input_key = f"input_text_{st.session_state.input_key_counter}"
+user_text = st.text_area(t["placeholder"], height=100, key=current_input_key, label_visibility="collapsed")
 
-# دکمه ارسال بدون on_click
 send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True)
 
-# اگر دکمه ارسال زده شد
 if send_clicked:
     if user_text.strip() or uploaded_files:
-        # ۱. ذخیره پیام در حافظه موقت
+        # ذخیره پیام و فایل‌ها
         st.session_state.pending_text = user_text
         st.session_state.pending_files = uploaded_files
         
-        # ۲. پاک کردن کادر متن
-        st.session_state.input_text = ""
-        
-        # ۳. رفرش کردن صفحه برای نمایش پیام
+        # افزایش شمارنده کلید برای خالی شدن کادر در اجرای بعدی
+        st.session_state.input_key_counter += 1
         st.rerun()
 
-# اگر پیامی در حافظه موقت هست (بعد از رفرش)
+# پردازش پیام (بعد از رفرش)
 if "pending_text" in st.session_state and st.session_state.pending_text:
-    # خواندن پیام از حافظه
     text_to_process = st.session_state.pending_text
     files_to_process = st.session_state.pending_files if "pending_files" in st.session_state else []
     
-    # پاک کردن حافظه موقت
     del st.session_state.pending_text
     if "pending_files" in st.session_state:
         del st.session_state.pending_files
     
-    # ساخت محتوای نمایشی
     display_content = text_to_process
     if files_to_process:
         display_content += f"\n[{len(files_to_process)} فایل پیوست شد]"
     
-    # اضافه کردن پیام کاربر به لیست
     current_messages.append({"role": "user", "content": display_content})
     
-    # ساخت پیام برای API
     api_content = [{"type": "text", "text": text_to_process if text_to_process else "این فایل را تحلیل کن."}]
     
     for file in files_to_process:
@@ -254,7 +250,6 @@ if "pending_text" in st.session_state and st.session_state.pending_text:
             except Exception as e:
                 st.error(f"خطا در خواندن PDF: {e}")
     
-    # ارسال به API و دریافت پاسخ
     sys_prompt = t["system_prompt"].format(tone=tone_value)
     if direction == "rtl":
         sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
