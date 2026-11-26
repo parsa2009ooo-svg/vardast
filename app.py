@@ -6,33 +6,91 @@ import urllib.parse
 import base64
 import PyPDF2
 import io
+from gtts import gTTS  # کتابخانه تبدیل متن به صدا
 
 # ==========================================
 # ۰. تنظیمات PWA (برای PWABuilder)
 # ==========================================
 pwa_html = """
-<link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Vardast%22,%22short_name%22:%22Vardast%22,%22description%22:%22A smart assistant for you, free and accessible.%22,%22start_url%22:%22/%22,%22display%22:%22standalone%22,%22orientation%22:%22portrait-primary%22,%22background_color%22:%22%230e1117%22,%22theme_color%22:%22%230e1117%22,%22lang%22:%22fa%22,%22dir%22:%22rtl%22,%22icons%22:[{%22src%22:%22https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/26a1.png%22,%22sizes%22:%2272x72%22,%22type%22:%22image/png%22}]}">
+<link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Vardast%22,%22short_name%22:%22Vardast%22,%22description%22:%22A smart assistant for you.%22,%22start_url%22:%22/%22,%22display%22:%22standalone%22,%22background_color%22:%22%230e1117%22,%22theme_color%22:%22%230e1117%22}">
 """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری
+# ۱. تنظیمات ظاهری پیشرفته (CSS)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
+    
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
-    .header-style { background: linear-gradient(90deg, #1E232F 0%, #0E1117 100%); padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #2C333F; }
-    [data-testid="stChatMessage"] { border-radius: 20px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); }
-    [data-testid="stSidebar"] .stButton > button { background-color: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; transition: all 0.3s ease; }
-    [data-testid="stSidebar"] .stButton > button:hover { background-color: rgba(255,255,255,0.1); border-color: #4A90E2; }
     
-    /* استایل دادن به کادر متن و دکمه ارسال */
-    .stTextArea textarea { border-radius: 15px; padding: 10px; }
-    .stButton > button { border-radius: 15px; }
+    /* هدر گرادیانتی */
+    .header-style {
+        background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%);
+        padding: 25px; border-radius: 20px; margin-bottom: 25px;
+        border: 1px solid rgba(255,255,255,0.05);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    
+    /* حباب‌های چت */
+    [data-testid="stChatMessage"] {
+        border-radius: 20px; padding: 20px; margin-bottom: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255,255,255,0.03);
+        backdrop-filter: blur(10px);
+    }
+    
+    /* دکمه‌های منوی کناری */
+    [data-testid="stSidebar"] .stButton > button {
+        background: rgba(255, 255, 255, 0.03); color: #e0e0e0;
+        border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+        transition: all 0.3s ease; backdrop-filter: blur(5px);
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: rgba(255, 255, 255, 0.1); border-color: #4A90E2;
+        color: white; transform: translateY(-2px);
+    }
+    
+    /* کادر متن */
+    .stTextArea textarea {
+        border-radius: 15px !important; padding: 15px !important;
+        background-color: rgba(0,0,0,0.2) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: white !important; font-size: 16px !important;
+    }
+    
+    /* دکمه ارسال */
+    div.stButton > button[kind="primary"] {
+        border-radius: 50px !important;
+        background: linear-gradient(90deg, #4A90E2, #8E44AD) !important;
+        color: white !important; border: none !important;
+        padding: 10px 30px !important; font-weight: 600 !important;
+        box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important;
+        transition: all 0.3s ease !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: scale(1.02) !important;
+        box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important;
+    }
+    
+    /* استایل دکمه‌های کوچیک (کپی و بلندگو) */
+    div[data-testid="column"] button {
+        border-radius: 50% !important;
+        padding: 5px !important;
+        width: 40px !important;
+        height: 40px !important;
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        font-size: 18px !important;
+    }
+    div[data-testid="column"] button:hover {
+        background: rgba(255,255,255,0.15) !important;
+        border-color: #4A90E2 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -45,8 +103,10 @@ LANGUAGES = {
         "language": "Language", "theme": "Theme", "tone": "Tone",
         "tone_opts": {"Friendly": "Friendly", "Professional": "Professional", "Creative": "Creative", "Direct": "Direct"},
         "new_chat": "➕ New Chat", "chat_list": "History", "clear_chat": "🗑️ Clear Chat",
-        "force_fa": "Force Persian Input", "placeholder": "Type your message here...\n(Press Shift+Enter for new line)",
-        "send_btn": "Send Message 🚀",
+        "force_fa": "Force Persian Input", "placeholder": "Type your message here... (Shift+Enter for new line)",
+        "send_btn": "Send 🚀", "upload_label": "Attach file (Optional)",
+        "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
+        "copy_btn": "📋", "listen_btn": "🔊",
         "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
@@ -55,8 +115,10 @@ LANGUAGES = {
         "language": "زبان", "theme": "تم", "tone": "لحن",
         "tone_opts": {"دوستانه": "دوستانه", "حرفه‌ای": "حرفه‌ای", "خلاقانه": "خلاقانه", "مستقیم": "مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه", "clear_chat": "🗑️ پاک کردن",
-        "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید...\n(برای خط جدید، Shift+Enter بزنید)",
-        "send_btn": "ارسال پیام 🚀",
+        "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید... (برای خط جدید Shift+Enter بزنید)",
+        "send_btn": "ارسال 🚀", "upload_label": "📎 پیوست فایل (اختیاری)",
+        "welcome": "👋 سلام! من **ور دست** هستم. چطور می‌تونم امروز کمکت کنم؟",
+        "copy_btn": "📋", "listen_btn": "🔊",
         "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
@@ -142,8 +204,13 @@ else:
 # ==========================================
 current_messages = st.session_state.chats[st.session_state.current_chat]
 
-for message in current_messages:
-    with st.chat_message(message["role"]):
+if len(current_messages) == 0:
+    with st.chat_message("assistant", avatar="⚡"):
+        st.markdown(t["welcome"])
+
+for i, message in enumerate(current_messages):
+    avatar = "🧑‍💻" if message["role"] == "user" else "⚡"
+    with st.chat_message(message["role"], avatar=avatar):
         if message["role"] == "assistant" and message["content"].startswith("IMAGE_GEN:"):
             img_prompt = message["content"].replace("IMAGE_GEN:", "").strip()
             encoded_prompt = urllib.parse.quote(img_prompt)
@@ -154,18 +221,43 @@ for message in current_messages:
         else:
             if direction == "rtl": st.markdown(f"<div class='rtl'>{message['content']}</div>", unsafe_allow_html=True)
             else: st.markdown(message["content"])
+            
+            # دکمه‌های تعامل
+            if message["role"] == "assistant":
+                col1, col2, col3 = st.columns([1, 1, 8])
+                with col1:
+                    if st.button(t["copy_btn"], key=f"copy_{i}"):
+                        components.html(f"<script>navigator.clipboard.writeText(`{message['content']}`);</script>", height=0)
+                        st.toast("متن کپی شد! ✅")
+                
+                with col2:
+                    # دکمه پخش صدا با آیکون بلندگو
+                    if st.button(t["listen_btn"], key=f"tts_{i}"):
+                        try:
+                            lang_code = "fa" if direction == "rtl" else "en"
+                            tts = gTTS(text=message["content"], lang=lang_code)
+                            audio_buffer = io.BytesIO()
+                            tts.write_to_fp(audio_buffer)
+                            audio_buffer.seek(0)
+                            st.audio(audio_buffer, format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"خطا در پخش صدا: {e}")
 
 # ==========================================
-# ۹. دریافت ورودی (با کادر متن جدید)
+# ۹. کادر ورودی و ارسال
 # ==========================================
-# بخش آپلود فایل
-uploaded_files = st.file_uploader("📎 فایل یا عکس پیوست کنید (اختیاری)", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"])
+st.write("")
 
-# کادر متن برای تایپ کردن
-user_text = st.text_area(t["placeholder"], height=100, key="input_text")
+with st.expander(t["upload_label"], expanded=False):
+    uploaded_files = st.file_uploader("", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
-# دکمه ارسال
-if st.button(t["send_btn"], type="primary", use_container_width=True):
+user_text = st.text_area(t["placeholder"], height=100, key="input_text", label_visibility="collapsed")
+
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True)
+
+if send_clicked:
     if user_text.strip() or uploaded_files:
         display_content = user_text
         if uploaded_files:
@@ -196,6 +288,7 @@ if st.button(t["send_btn"], type="primary", use_container_width=True):
                     st.error(f"خطا در خواندن PDF: {e}")
         
         current_messages.append({"role": "user", "content": display_content})
+        st.session_state.input_text = "" 
         
         sys_prompt = t["system_prompt"].format(tone=tone_value)
         if direction == "rtl": 
@@ -207,15 +300,16 @@ if st.button(t["send_btn"], type="primary", use_container_width=True):
         api_messages.append({"role": "user", "content": api_content})
 
         try:
-            stream = client.chat.completions.create(
-                model="qwen/qwen3.8-27b",
-                messages=api_messages, 
-                temperature=1.0, 
-                stream=True,
-                max_tokens=600
-            )
-            response = st.write_stream(stream)
-            current_messages.append({"role": "assistant", "content": response})
-            st.rerun() # رفرش کردن صفحه برای نمایش پیام جدید
+            with st.spinner("در حال فکر کردن..."):
+                stream = client.chat.completions.create(
+                    model="qwen/qwen3.8-27b",
+                    messages=api_messages, 
+                    temperature=1.0, 
+                    stream=True,
+                    max_tokens=600
+                )
+                response = st.write_stream(stream)
+                current_messages.append({"role": "assistant", "content": response})
+                st.rerun()
         except Exception as e:
             st.error(f"Connection error: {e}")
