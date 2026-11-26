@@ -17,7 +17,7 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری (CSS)
+# ۱. تنظیمات ظاهری پیشرفته (CSS)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
@@ -28,7 +28,7 @@ st.markdown("""
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
     
-    /* هدر */
+    /* هدر گرادیانتی */
     .header-style {
         background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%);
         padding: 25px; border-radius: 20px; margin-bottom: 25px;
@@ -77,45 +77,40 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important;
     }
     
-    /* دکمه‌های آیکونی ریز */
-    div[data-testid="column"] button {
-        border-radius: 8px !important;
-        padding: 5px !important;
-        width: 35px !important;
-        height: 35px !important;
-        background: transparent !important;
-        border: none !important;
-        font-size: 18px !important;
-        color: #888 !important;
+    /* دکمه‌های شیشه‌ای آیکونی */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
+        background: rgba(255, 255, 255, 0.05) !important;
+        backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 50% !important;
+        width: 38px !important;
+        height: 38px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 16px !important;
+        color: #ccc !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
         transition: all 0.2s ease !important;
     }
-    div[data-testid="column"] button:hover {
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover {
+        background: rgba(255, 255, 255, 0.15) !important;
         color: white !important;
-        background: rgba(255,255,255,0.1) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
     }
     
-    /* انیمیشن سه نقطه (Typing Indicator) */
-    .typing-indicator {
-        display: inline-block;
-        position: relative;
-        width: 40px;
-        height: 20px;
-    }
+    /* انیمیشن سه نقطه */
+    .typing-indicator { display: inline-block; position: relative; width: 40px; height: 20px; }
     .typing-indicator::before, .typing-indicator::after, .typing-indicator span {
-        content: '';
-        position: absolute;
-        top: 50%;
-        width: 6px;
-        height: 6px;
-        background-color: #888;
-        border-radius: 50%;
-        transform: translateY(-50%);
+        content: ''; position: absolute; top: 50%; width: 6px; height: 6px;
+        background-color: #888; border-radius: 50%; transform: translateY(-50%);
         animation: typing 1.4s infinite ease-in-out both;
     }
     .typing-indicator::before { left: 0; animation-delay: -0.32s; }
     .typing-indicator span { left: 12px; animation-delay: -0.16s; }
     .typing-indicator::after { left: 24px; }
-    
     @keyframes typing {
         0%, 80%, 100% { transform: translateY(-50%) scale(0); }
         40% { transform: translateY(-50%) scale(1); }
@@ -124,7 +119,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# ۲. ساختار چندزبانه
+# ۲. ساختار چندزبانه با پرامپت قدرتمند
 # ==========================================
 LANGUAGES = {
     "English": {
@@ -135,7 +130,14 @@ LANGUAGES = {
         "force_fa": "Force Persian Input", "placeholder": "Type your message here...",
         "send_btn": "Send 🚀", "upload_label": "Attach file (Optional)",
         "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
-        "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
+        "quick_1": "📝 Translate to English", "quick_2": "💡 Explain quantum physics",
+        "quick_3": "🎨 Generate a cyberpunk image", "download_chat": "📥 Download Chat",
+        # پرامپت جدید و قدرتمند برای پاسخگویی دقیق
+        "system_prompt": """You are 'Vardast', a highly intelligent, precise, and helpful AI assistant. 
+        Your goal is to provide accurate, detailed, and well-structured answers. 
+        Always use Markdown formatting (bolding, lists, code blocks) to make your responses readable.
+        If the user asks for an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'.
+        Your tone should be {tone}. Never make up facts; if you don't know, say so.""",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
     "فارسی": {
@@ -146,7 +148,14 @@ LANGUAGES = {
         "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید...",
         "send_btn": "ارسال 🚀", "upload_label": "📎 پیوست فایل (اختیاری)",
         "welcome": "👋 سلام! من **ور دست** هستم. چطور می‌تونم امروز کمکت کنم؟",
-        "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
+        "quick_1": "📝 ترجمه به انگلیسی", "quick_2": "💡 توضیح فیزیک کوانتوم",
+        "quick_3": "🎨 ساخت عکس سایبرپانک", "download_chat": "📥 دانلود تاریخچه",
+        # پرامپت جدید و قدرتمند برای پاسخگویی دقیق
+        "system_prompt": """تو 'ور دست' هستی، یک دستیار هوش مصنوعی فوق‌العاده باهوش، دقیق و مفید. 
+        هدف تو ارائه پاسخ‌های صحیح، کامل و ساختاریافته است. 
+        همیشه از فرمت‌بندی Markdown (مثل بولد کردن، لیست، و کد) برای خوانایی بهتر استفاده کن.
+        اگر کاربر ازت خواست عکس بسازی، دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'.
+        لحن تو باید {tone} باشد. هرگز اطلاعات از خودت نساز؛ اگر چیزی را نمی‌دانی، صادقانه بگو.""",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
 }
@@ -200,6 +209,13 @@ with st.sidebar:
     if st.button(t["clear_chat"], use_container_width=True):
         st.session_state.chats[st.session_state.current_chat] = []
         st.rerun()
+        
+    if st.session_state.chats[st.session_state.current_chat]:
+        chat_text = ""
+        for msg in st.session_state.chats[st.session_state.current_chat]:
+            role = "شما" if msg["role"] == "user" else "Vardast"
+            chat_text += f"{role}:\n{msg['content']}\n\n"
+        st.download_button(label=t["download_chat"], data=chat_text, file_name="vardast_chat.txt", mime="text/plain", use_container_width=True)
 
     st.divider()
     st.markdown(f"<div style='text-align: center; color: gray; font-size: 13px;'>{t['creator']}</div>", unsafe_allow_html=True)
@@ -228,41 +244,51 @@ else:
     direction = "ltr" if force_english else "rtl"
 
 # ==========================================
-# ۸. نمایش چت
+# ۸. نمایش چت (با آیکون جدید کاربر)
 # ==========================================
 current_messages = st.session_state.chats[st.session_state.current_chat]
 
 if len(current_messages) == 0:
     with st.chat_message("assistant", avatar="⚡"):
         st.markdown(t["welcome"])
+    
+    st.write("")
+    c1, c2, c3 = st.columns(3)
+    if c1.button(t["quick_1"], use_container_width=True):
+        st.session_state.quick_prompt = "این متن را به انگلیسی ترجمه کن: "
+    if c2.button(t["quick_2"], use_container_width=True):
+        st.session_state.quick_prompt = "فیزیک کوانتوم را به زبان ساده توضیح بده."
+    if c3.button(t["quick_3"], use_container_width=True):
+        st.session_state.quick_prompt = "یه عکس از یک شهر سایبرپانک در شب بساز."
 
 for i, message in enumerate(current_messages):
-    avatar = "🧑‍💻" if message["role"] == "user" else "⚡"
+    # تغییر آیکون کاربر به یک آدم معمولی (👤) به جای مرد پشت لپ‌تاپ
+    avatar = "👤" if message["role"] == "user" else "⚡"
+    
     with st.chat_message(message["role"], avatar=avatar):
         if message["role"] == "assistant" and message["content"].startswith("IMAGE_GEN:"):
             img_prompt = message["content"].replace("IMAGE_GEN:", "").strip()
             encoded_prompt = urllib.parse.quote(img_prompt)
             img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             st.image(img_url, caption=f"Prompt: {img_prompt}")
-            if direction == "rtl": st.markdown(f"<div class='rtl'>تصویر ساخته شد!</div>", unsafe_allow_html=True)
-            else: st.markdown("Image generated!")
         else:
             if direction == "rtl": st.markdown(f"<div class='rtl'>{message['content']}</div>", unsafe_allow_html=True)
             else: st.markdown(message["content"])
             
             if message["role"] == "assistant":
-                # دکمه‌های آیکونی دقیقاً مثل طرحی که فرستادی
-                col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 8])
+                col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 10])
                 with col1:
-                    if st.button("📋", key=f"copy_{i}", help="کپی"):
+                    if st.button("📋", key=f"copy_{i}"):
                         components.html(f"<script>navigator.clipboard.writeText(`{message['content']}`);</script>", height=0)
                         st.toast("کپی شد! ✅")
                 with col2:
-                    st.button("👍", key=f"like_{i}", help="لایک")
+                    if st.button("👍", key=f"like_{i}"):
+                        st.toast("ممنون از بازخوردت! ❤️")
                 with col3:
-                    st.button("👎", key=f"dislike_{i}", help="دیس‌لایک")
+                    if st.button("👎", key=f"dislike_{i}"):
+                        st.toast("متأسفم که راضی نبودی. 😔")
                 with col4:
-                    if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
+                    if st.button("🔊", key=f"tts_{i}"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
                             tts = gTTS(text=message["content"], lang=lang_code)
@@ -270,11 +296,11 @@ for i, message in enumerate(current_messages):
                             tts.write_to_fp(audio_buffer)
                             audio_buffer.seek(0)
                             st.audio(audio_buffer, format="audio/mp3")
-                        except Exception as e:
-                            st.error(f"خطا در پخش صدا: {e}")
+                        except Exception:
+                            st.warning("⚠️ سرویس صوتی موقتاً در دسترس نیست.")
                 with col5:
-                    if st.button("↗️", key=f"share_{i}", help="اشتراک‌گذاری"):
-                        st.toast("قابلیت اشتراک‌گذاری به زودی...")
+                    if st.button("↗️", key=f"share_{i}"):
+                        st.toast("لینک کپی شد! (به زودی)")
 
 # ==========================================
 # ۹. کادر ورودی و ارسال
@@ -285,7 +311,13 @@ with st.expander(t["upload_label"], expanded=False):
     uploaded_files = st.file_uploader("", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
 current_input_key = f"input_text_{st.session_state.input_key_counter}"
-user_text = st.text_area(t["placeholder"], height=100, key=current_input_key, label_visibility="collapsed")
+
+default_val = ""
+if "quick_prompt" in st.session_state:
+    default_val = st.session_state.quick_prompt
+    del st.session_state.quick_prompt
+
+user_text = st.text_area(t["placeholder"], value=default_val, height=100, key=current_input_key, label_visibility="collapsed")
 
 send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True)
 
@@ -296,7 +328,6 @@ if send_clicked:
         st.session_state.input_key_counter += 1
         st.rerun()
 
-# پردازش پیام
 if "pending_text" in st.session_state and st.session_state.pending_text:
     text_to_process = st.session_state.pending_text
     files_to_process = st.session_state.pending_files if "pending_files" in st.session_state else []
@@ -344,7 +375,6 @@ if "pending_text" in st.session_state and st.session_state.pending_text:
     api_messages.append({"role": "user", "content": api_content})
 
     try:
-        # نمایش انیمیشن سه نقطه به جای متن "در حال فکر کردن"
         with st.chat_message("assistant", avatar="⚡"):
             st.markdown('<div class="typing-indicator"><span></span></div>', unsafe_allow_html=True)
             
@@ -360,4 +390,3 @@ if "pending_text" in st.session_state and st.session_state.pending_text:
             st.rerun()
     except Exception as e:
         st.error(f"⚠️ خطای اتصال: {e}")
-        st.info("💡 لطفاً VPN خود را روشن کنید و دوباره تلاش کنید.")
