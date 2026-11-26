@@ -17,79 +17,80 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری (CSS و آیکون‌های FontAwesome)
+# ۱. تنظیمات ظاهری (با پس‌زمینه تخت جمشید)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
-st.markdown("""
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+# لینک عکس تخت جمشید (با کیفیت و رایگان)
+PERSIPOLIS_IMAGE = "https://images.unsplash.com/photo-1590076214221-87678f4f8b14?q=80&w=2070&auto=format&fit=crop"
+
+st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
     
-    html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
-    .rtl { direction: rtl; text-align: right; }
+    html, body, [class*="css"] {{ font-family: 'Poppins', 'Vazirmatn', sans-serif; }}
+    .rtl {{ direction: rtl; text-align: right; }}
+    
+    /* === پس‌زمینه تخت جمشید (مات و تیره) === */
+    .stApp {{
+        background-image: linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.95)), url("{PERSIPOLIS_IMAGE}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        background-repeat: no-repeat;
+    }}
     
     /* هدر */
-    .header-style { background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%); padding: 25px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); }
+    .header-style {{ background: rgba(30, 35, 47, 0.7); backdrop-filter: blur(15px); padding: 25px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); }}
     
-    /* حباب‌های چت */
-    [data-testid="stChatMessage"] { border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.03); backdrop-filter: blur(10px); }
+    /* حباب‌های چت (شیشه‌ای) */
+    [data-testid="stChatMessage"] {{ background: rgba(30, 35, 47, 0.6) !important; backdrop-filter: blur(20px); border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); }}
     
     /* دکمه‌های منوی کناری */
-    [data-testid="stSidebar"] .stButton > button { background: rgba(255, 255, 255, 0.03); color: #e0e0e0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; transition: all 0.3s ease; backdrop-filter: blur(5px); }
-    [data-testid="stSidebar"] .stButton > button:hover { background: rgba(255, 255, 255, 0.1); border-color: #4A90E2; color: white; transform: translateY(-2px); }
+    [data-testid="stSidebar"] .stButton > button {{ background: rgba(255, 255, 255, 0.05); color: #e0e0e0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; transition: all 0.3s ease; backdrop-filter: blur(5px); }}
+    [data-testid="stSidebar"] .stButton > button:hover {{ background: rgba(255, 255, 255, 0.15); border-color: #4A90E2; color: white; transform: translateY(-2px); }}
     
     /* کادر متن */
-    .stTextArea textarea { border-radius: 15px !important; padding: 15px !important; background-color: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; font-size: 16px !important; }
+    .stTextArea textarea {{ border-radius: 15px !important; padding: 15px !important; background-color: rgba(0,0,0,0.4) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15) !important; color: white !important; font-size: 16px !important; }}
     
     /* دکمه ارسال */
-    div.stButton > button[kind="primary"] { border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }
-    div.stButton > button[kind="primary"]:hover { transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }
+    div.stButton > button[kind="primary"] {{ border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }}
+    div.stButton > button[kind="primary"]:hover {{ transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }}
     
-    /* === استایل دکمه‌های آیکونی (مثل عکس) === */
-    /* مخفی کردن متن دکمه‌ها */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button p { display: none; }
-    
-    /* استایل دکمه */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
+    /* دکمه‌های آیکونی (همون دکمه‌های خوب قبلی) */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {{
+        background: rgba(255, 255, 255, 0.08) !important;
+        backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 50% !important;
         width: 40px !important;
         height: 40px !important;
-        min-height: 40px !important;
+        padding: 0 !important;
+        font-size: 16px !important;
+        color: #ccc !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         transition: all 0.2s ease !important;
-    }
-    
-    /* رنگ آیکون‌ها (خاکستری) */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button i {
-        font-size: 20px !important;
-        color: #888 !important;
-        transition: all 0.2s ease !important;
-    }
-    
-    /* افکت هاور (سفید میشه) */
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover i {
+    }}
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover {{
+        background: rgba(255, 255, 255, 0.2) !important;
         color: white !important;
-        transform: scale(1.1) !important;
-    }
+        transform: translateY(-2px) !important;
+    }}
     
     /* انیمیشن سه نقطه */
-    .typing-indicator { display: inline-block; position: relative; width: 40px; height: 20px; }
-    .typing-indicator::before, .typing-indicator::after, .typing-indicator span { content: ''; position: absolute; top: 50%; width: 6px; height: 6px; background-color: #888; border-radius: 50%; transform: translateY(-50%); animation: typing 1.4s infinite ease-in-out both; }
-    .typing-indicator::before { left: 0; animation-delay: -0.32s; }
-    .typing-indicator span { left: 12px; animation-delay: -0.16s; }
-    .typing-indicator::after { left: 24px; }
-    @keyframes typing { 0%, 80%, 100% { transform: translateY(-50%) scale(0); } 40% { transform: translateY(-50%) scale(1); } }
+    .typing-indicator {{ display: inline-block; position: relative; width: 40px; height: 20px; }}
+    .typing-indicator::before, .typing-indicator::after, .typing-indicator span {{ content: ''; position: absolute; top: 50%; width: 6px; height: 6px; background-color: #888; border-radius: 50%; transform: translateY(-50%); animation: typing 1.4s infinite ease-in-out both; }}
+    .typing-indicator::before {{ left: 0; animation-delay: -0.32s; }}
+    .typing-indicator span {{ left: 12px; animation-delay: -0.16s; }}
+    .typing-indicator::after {{ left: 24px; }}
+    @keyframes typing {{ 0%, 80%, 100% {{ transform: translateY(-50%) scale(0); }} 40% {{ transform: translateY(-50%) scale(1); }} }}
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# ۲. ساختار چندزبانه
+# ۲. ساختار چندزبانه (پرامپت بهبود یافته)
 # ==========================================
 LANGUAGES = {
     "English": {
@@ -102,11 +103,10 @@ LANGUAGES = {
         "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
         "quick_1": "📝 Translate to English", "quick_2": "💡 Explain quantum physics",
         "quick_3": "🎨 Generate a cyberpunk image", "download_chat": "📥 Download Chat",
-        "system_prompt": """You are 'Vardast', a highly intelligent, precise, and helpful AI assistant. 
-        Your goal is to provide accurate, detailed, and well-structured answers. 
-        Always use Markdown formatting.
-        If the user asks for an image, you MUST reply with EXACTLY this format on a new line: 'IMAGE_GEN: [English prompt]'. Do not add any other text before or after it.
-        Your tone should be {tone}.""",
+        "system_prompt": """You are 'Vardast', a highly intelligent and precise AI. 
+        Provide detailed, accurate, and well-structured answers using Markdown.
+        If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]' on a new line.
+        Tone: {tone}.""",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
     "فارسی": {
@@ -120,8 +120,8 @@ LANGUAGES = {
         "quick_1": "📝 ترجمه به انگلیسی", "quick_2": "💡 توضیح فیزیک کوانتوم",
         "quick_3": "🎨 ساخت عکس سایبرپانک", "download_chat": "📥 دانلود تاریخچه",
         "system_prompt": """تو 'ور دست' هستی، یک دستیار هوش مصنوعی فوق‌العاده باهوش. 
-        هدف تو ارائه پاسخ‌های دقیق و ساختاریافته است. 
-        اگر کاربر ازت خواست عکس بسازی، باید دقیقاً در یک خط جداگانه اینطور بنویسی: 'IMAGE_GEN: [توضیح انگلیسی]'. هیچ متن دیگری قبل یا بعد از آن ننویس.
+        پاسخ‌هایت باید دقیق، کامل و با استفاده از Markdown باشد.
+        اگر کاربر خواست عکس بسازی، دقیقاً در یک خط جداگانه بنویس: 'IMAGE_GEN: [توضیح انگلیسی]'.
         لحن تو باید {tone} باشد.""",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
@@ -191,9 +191,9 @@ with st.sidebar:
 # ۶. اعمال تم
 # ==========================================
 if theme_choice == "Dark":
-    st.markdown("<style>.stApp { background-color: #0E1117; color: white; } [data-testid='stChatMessage'] { background-color: #1E232F; }</style>", unsafe_allow_html=True)
+    st.markdown("<style>[data-testid='stChatMessage'] { background-color: rgba(30, 35, 47, 0.7) !important; }</style>", unsafe_allow_html=True)
 else:
-    st.markdown("<style>.stApp { background-color: #F8F9FA; color: #333; } [data-testid='stChatMessage'] { background-color: #FFFFFF; }</style>", unsafe_allow_html=True)
+    st.markdown("<style>.stApp { background-image: linear-gradient(rgba(248, 249, 250, 0.85), rgba(248, 249, 250, 0.95)), url('" + PERSIPOLIS_IMAGE + "') !important; color: #333; } [data-testid='stChatMessage'] { background-color: rgba(255, 255, 255, 0.7) !important; color: #333; }</style>", unsafe_allow_html=True)
 
 # ==========================================
 # ۷. هدر
@@ -248,39 +248,36 @@ for i, message in enumerate(current_messages):
             else: st.markdown(content)
             
             if message["role"] == "assistant":
-                # === دکمه‌های آیکونی با FontAwesome ===
+                # دکمه‌های آیکونی (همون دکمه‌های خوب قبلی)
                 col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
                 with col1:
-                    # آیکون کپی (دو مربع روی هم)
-                    if st.button("copy", key=f"copy_{i}"):
+                    if st.button("📋", key=f"copy_{i}", help="کپی"):
                         components.html(f"<script>navigator.clipboard.writeText(`{content}`);</script>", height=0)
                         st.toast("کپی شد! ✅")
                 with col2:
-                    # آیکون لایک (شست بالا)
-                    if st.button("like", key=f"like_{i}"):
+                    if st.button("👍", key=f"like_{i}", help="لایک"):
                         st.toast("ممنون! ❤️")
                 with col3:
-                    # آیکون دیس‌لایک (شست پایین)
-                    if st.button("dislike", key=f"dislike_{i}"):
+                    if st.button("👎", key=f"dislike_{i}", help="دیس‌لایک"):
                         st.toast("متأسفم. 😔")
                 with col4:
-                    # آیکون بلندگو
-                    if st.button("tts", key=f"tts_{i}"):
+                    if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
+                            # استفاده از سرویس Google Translate TTS (پایدارتر از gTTS)
                             url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={urllib.parse.quote(content[:200])}&tl={lang_code}&client=tw-ob"
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             response = requests.get(url, headers=headers)
+                            
                             if response.status_code == 200:
                                 audio_buffer = io.BytesIO(response.content)
                                 st.audio(audio_buffer, format="audio/mp3")
                             else:
-                                st.warning("⚠️ سرویس صوتی پاسخ نداد.")
+                                st.warning("⚠️ سرویس صوتی موقتاً در دسترس نیست.")
                         except Exception as e:
-                            st.warning(f"⚠️ خطا در صدا: {e}")
+                            st.warning(f"⚠️ خطا در پخش صدا: {e}")
                 with col5:
-                    # آیکون اشتراک‌گذاری (فلش)
-                    if st.button("share", key=f"share_{i}"):
+                    if st.button("↗️", key=f"share_{i}", help="اشتراک"):
                         st.toast("لینک کپی شد! (به زودی)")
 
 # ==========================================
