@@ -16,54 +16,23 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری (طراحی مدرن)
+# ۱. تنظیمات ظاهری
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
-    
-    /* فونت و جهت‌دهی */
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
+    .header-style { background: linear-gradient(90deg, #1E232F 0%, #0E1117 100%); padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid #2C333F; }
+    [data-testid="stChatMessage"] { border-radius: 20px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); }
+    [data-testid="stSidebar"] .stButton > button { background-color: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; transition: all 0.3s ease; }
+    [data-testid="stSidebar"] .stButton > button:hover { background-color: rgba(255,255,255,0.1); border-color: #4A90E2; }
     
-    /* هدر گرادیانتی */
-    .header-style {
-        background: linear-gradient(90deg, #1E232F 0%, #0E1117 100%);
-        padding: 20px;
-        border-radius: 15px;
-        margin-bottom: 20px;
-        border: 1px solid #2C333F;
-    }
-    
-    /* حباب‌های چت */
-    [data-testid="stChatMessage"] {
-        border-radius: 20px;
-        padding: 15px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    
-    /* دکمه‌های شیشه‌ای منوی کناری */
-    [data-testid="stSidebar"] .stButton > button {
-        background-color: rgba(255,255,255,0.05);
-        color: white;
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 10px;
-        transition: all 0.3s ease;
-    }
-    [data-testid="stSidebar"] .stButton > button:hover {
-        background-color: rgba(255,255,255,0.1);
-        border-color: #4A90E2;
-    }
-    
-    /* کادر ورودی */
-    .stChatInput {
-        border-radius: 20px;
-        box-shadow: 0 0 15px rgba(74, 144, 226, 0.2);
-    }
+    /* استایل دادن به کادر متن و دکمه ارسال */
+    .stTextArea textarea { border-radius: 15px; padding: 10px; }
+    .stButton > button { border-radius: 15px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -76,7 +45,8 @@ LANGUAGES = {
         "language": "Language", "theme": "Theme", "tone": "Tone",
         "tone_opts": {"Friendly": "Friendly", "Professional": "Professional", "Creative": "Creative", "Direct": "Direct"},
         "new_chat": "➕ New Chat", "chat_list": "History", "clear_chat": "🗑️ Clear Chat",
-        "force_fa": "Force Persian Input", "placeholder": "Type here...",
+        "force_fa": "Force Persian Input", "placeholder": "Type your message here...\n(Press Shift+Enter for new line)",
+        "send_btn": "Send Message 🚀",
         "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
@@ -85,7 +55,8 @@ LANGUAGES = {
         "language": "زبان", "theme": "تم", "tone": "لحن",
         "tone_opts": {"دوستانه": "دوستانه", "حرفه‌ای": "حرفه‌ای", "خلاقانه": "خلاقانه", "مستقیم": "مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه", "clear_chat": "🗑️ پاک کردن",
-        "force_fa": "ورودی انگلیسی", "placeholder": "اینجا بنویس...",
+        "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید...\n(برای خط جدید، Shift+Enter بزنید)",
+        "send_btn": "ارسال پیام 🚀",
         "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
@@ -185,62 +156,56 @@ for message in current_messages:
             else: st.markdown(message["content"])
 
 # ==========================================
-# ۹. دریافت ورودی (با قابلیت آپلود فایل و PDF)
+# ۹. دریافت ورودی (با کادر متن جدید)
 # ==========================================
-prompt = st.chat_input(t["placeholder"], accept_file=True, file_type=["jpg", "jpeg", "png", "pdf"])
+# بخش آپلود فایل
+uploaded_files = st.file_uploader("📎 فایل یا عکس پیوست کنید (اختیاری)", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"])
 
-if prompt:
-    user_text = prompt.text if prompt.text else ""
-    user_files = prompt.files if prompt.files else []
-    
-    display_content = user_text
-    if user_files:
-        display_content += f"\n[فایل پیوست شد]"
-    
-    api_content = [{"type": "text", "text": user_text if user_text else "این فایل را تحلیل کن."}]
-    
-    for file in user_files:
-        # پردازش تصویر
-        if file.type.startswith("image"):
-            image_bytes = file.getvalue()
-            base64_image = base64.b64encode(image_bytes).decode('utf-8')
-            api_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
-            })
-        # پردازش PDF
-        elif file.type == "application/pdf":
-            try:
-                pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.getvalue()))
-                pdf_text = ""
-                for page in pdf_reader.pages:
-                    pdf_text += page.extract_text() + "\n"
-                
-                api_content.append({
-                    "type": "text",
-                    "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..." 
-                })
-            except Exception as e:
-                st.error(f"خطا در خواندن PDF: {e}")
-    
-    current_messages.append({"role": "user", "content": display_content})
-    with st.chat_message("user"):
-        if direction == "rtl": st.markdown(f"<div class='rtl'>{display_content}</div>", unsafe_allow_html=True)
-        else: st.markdown(display_content)
-        for file in user_files:
+# کادر متن برای تایپ کردن
+user_text = st.text_area(t["placeholder"], height=100, key="input_text")
+
+# دکمه ارسال
+if st.button(t["send_btn"], type="primary", use_container_width=True):
+    if user_text.strip() or uploaded_files:
+        display_content = user_text
+        if uploaded_files:
+            display_content += f"\n[{len(uploaded_files)} فایل پیوست شد]"
+        
+        api_content = [{"type": "text", "text": user_text if user_text else "این فایل را تحلیل کن."}]
+        
+        for file in uploaded_files:
             if file.type.startswith("image"):
-                st.image(file)
+                image_bytes = file.getvalue()
+                base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                api_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
+                })
+            elif file.type == "application/pdf":
+                try:
+                    pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.getvalue()))
+                    pdf_text = ""
+                    for page in pdf_reader.pages:
+                        pdf_text += page.extract_text() + "\n"
+                    
+                    api_content.append({
+                        "type": "text",
+                        "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..." 
+                    })
+                except Exception as e:
+                    st.error(f"خطا در خواندن PDF: {e}")
+        
+        current_messages.append({"role": "user", "content": display_content})
+        
+        sys_prompt = t["system_prompt"].format(tone=tone_value)
+        if direction == "rtl": 
+            sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
 
-    sys_prompt = t["system_prompt"].format(tone=tone_value)
-    if direction == "rtl": 
-        sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
+        api_messages = [{"role": "system", "content": sys_prompt}]
+        for m in current_messages[:-1]:
+            api_messages.append({"role": m["role"], "content": m["content"]})
+        api_messages.append({"role": "user", "content": api_content})
 
-    api_messages = [{"role": "system", "content": sys_prompt}]
-    for m in current_messages[:-1]:
-        api_messages.append({"role": m["role"], "content": m["content"]})
-    api_messages.append({"role": "user", "content": api_content})
-
-    with st.chat_message("assistant"):
         try:
             stream = client.chat.completions.create(
                 model="qwen/qwen3.8-27b",
@@ -251,5 +216,6 @@ if prompt:
             )
             response = st.write_stream(stream)
             current_messages.append({"role": "assistant", "content": response})
+            st.rerun() # رفرش کردن صفحه برای نمایش پیام جدید
         except Exception as e:
             st.error(f"Connection error: {e}")
