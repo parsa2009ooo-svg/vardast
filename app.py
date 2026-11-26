@@ -9,7 +9,7 @@ import io
 from gtts import gTTS
 
 # ==========================================
-# ۰. تنظیمات PWA (برای PWABuilder)
+# ۰. تنظیمات PWA
 # ==========================================
 pwa_html = """
 <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Vardast%22,%22short_name%22:%22Vardast%22,%22description%22:%22A smart assistant for you.%22,%22start_url%22:%22/%22,%22display%22:%22standalone%22,%22background_color%22:%22%230e1117%22,%22theme_color%22:%22%230e1117%22}">
@@ -17,80 +17,24 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری پیشرفته (CSS)
+# ۱. تنظیمات ظاهری (CSS)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
-    
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
-    
-    /* هدر گرادیانتی */
-    .header-style {
-        background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%);
-        padding: 25px; border-radius: 20px; margin-bottom: 25px;
-        border: 1px solid rgba(255,255,255,0.05);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-    }
-    
-    /* حباب‌های چت */
-    [data-testid="stChatMessage"] {
-        border-radius: 20px; padding: 20px; margin-bottom: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.03);
-        backdrop-filter: blur(10px);
-    }
-    
-    /* دکمه‌های منوی کناری */
-    [data-testid="stSidebar"] .stButton > button {
-        background: rgba(255, 255, 255, 0.03); color: #e0e0e0;
-        border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
-        transition: all 0.3s ease; backdrop-filter: blur(5px);
-    }
-    [data-testid="stSidebar"] .stButton > button:hover {
-        background: rgba(255, 255, 255, 0.1); border-color: #4A90E2;
-        color: white; transform: translateY(-2px);
-    }
-    
-    /* کادر متن */
-    .stTextArea textarea {
-        border-radius: 15px !important; padding: 15px !important;
-        background-color: rgba(0,0,0,0.2) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        color: white !important; font-size: 16px !important;
-    }
-    
-    /* دکمه ارسال */
-    div.stButton > button[kind="primary"] {
-        border-radius: 50px !important;
-        background: linear-gradient(90deg, #4A90E2, #8E44AD) !important;
-        color: white !important; border: none !important;
-        padding: 10px 30px !important; font-weight: 600 !important;
-        box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important;
-        transition: all 0.3s ease !important;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        transform: scale(1.02) !important;
-        box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important;
-    }
-    
-    /* دکمه‌های کوچیک (کپی و بلندگو) */
-    div[data-testid="column"] button {
-        border-radius: 50% !important;
-        padding: 5px !important;
-        width: 40px !important;
-        height: 40px !important;
-        background: rgba(255,255,255,0.05) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        font-size: 18px !important;
-    }
-    div[data-testid="column"] button:hover {
-        background: rgba(255,255,255,0.15) !important;
-        border-color: #4A90E2 !important;
-    }
+    .header-style { background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%); padding: 25px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); }
+    [data-testid="stChatMessage"] { border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.03); backdrop-filter: blur(10px); }
+    [data-testid="stSidebar"] .stButton > button { background: rgba(255, 255, 255, 0.03); color: #e0e0e0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; transition: all 0.3s ease; backdrop-filter: blur(5px); }
+    [data-testid="stSidebar"] .stButton > button:hover { background: rgba(255, 255, 255, 0.1); border-color: #4A90E2; color: white; transform: translateY(-2px); }
+    .stTextArea textarea { border-radius: 15px !important; padding: 15px !important; background-color: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; font-size: 16px !important; }
+    div.stButton > button[kind="primary"] { border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }
+    div.stButton > button[kind="primary"]:hover { transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }
+    div[data-testid="column"] button { border-radius: 50% !important; padding: 5px !important; width: 40px !important; height: 40px !important; background: rgba(255,255,255,0.05) !important; border: 1px solid rgba(255,255,255,0.1) !important; font-size: 18px !important; }
+    div[data-testid="column"] button:hover { background: rgba(255,255,255,0.15) !important; border-color: #4A90E2 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -222,14 +166,12 @@ for i, message in enumerate(current_messages):
             if direction == "rtl": st.markdown(f"<div class='rtl'>{message['content']}</div>", unsafe_allow_html=True)
             else: st.markdown(message["content"])
             
-            # دکمه‌های تعامل
             if message["role"] == "assistant":
                 col1, col2, col3 = st.columns([1, 1, 8])
                 with col1:
                     if st.button(t["copy_btn"], key=f"copy_{i}"):
                         components.html(f"<script>navigator.clipboard.writeText(`{message['content']}`);</script>", height=0)
                         st.toast("متن کپی شد! ✅")
-                
                 with col2:
                     if st.button(t["listen_btn"], key=f"tts_{i}"):
                         try:
@@ -243,74 +185,96 @@ for i, message in enumerate(current_messages):
                             st.error(f"خطا در پخش صدا: {e}")
 
 # ==========================================
-# ۹. کادر ورودی و ارسال (اصلاح‌شده)
+# ۹. کادر ورودی و ارسال (اصلاح نهایی)
 # ==========================================
-def clear_text():
-    st.session_state.input_text = ""
-
 st.write("")
 
 with st.expander(t["upload_label"], expanded=False):
     uploaded_files = st.file_uploader("", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
+# کادر متن
 user_text = st.text_area(t["placeholder"], height=100, key="input_text", label_visibility="collapsed")
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True, on_click=clear_text)
+# دکمه ارسال بدون on_click
+send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True)
 
+# اگر دکمه ارسال زده شد
 if send_clicked:
     if user_text.strip() or uploaded_files:
-        display_content = user_text
-        if uploaded_files:
-            display_content += f"\n[{len(uploaded_files)} فایل پیوست شد]"
+        # ۱. ذخیره پیام در حافظه موقت
+        st.session_state.pending_text = user_text
+        st.session_state.pending_files = uploaded_files
         
-        api_content = [{"type": "text", "text": user_text if user_text else "این فایل را تحلیل کن."}]
+        # ۲. پاک کردن کادر متن
+        st.session_state.input_text = ""
         
-        for file in uploaded_files:
-            if file.type.startswith("image"):
-                image_bytes = file.getvalue()
-                base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        # ۳. رفرش کردن صفحه برای نمایش پیام
+        st.rerun()
+
+# اگر پیامی در حافظه موقت هست (بعد از رفرش)
+if "pending_text" in st.session_state and st.session_state.pending_text:
+    # خواندن پیام از حافظه
+    text_to_process = st.session_state.pending_text
+    files_to_process = st.session_state.pending_files if "pending_files" in st.session_state else []
+    
+    # پاک کردن حافظه موقت
+    del st.session_state.pending_text
+    if "pending_files" in st.session_state:
+        del st.session_state.pending_files
+    
+    # ساخت محتوای نمایشی
+    display_content = text_to_process
+    if files_to_process:
+        display_content += f"\n[{len(files_to_process)} فایل پیوست شد]"
+    
+    # اضافه کردن پیام کاربر به لیست
+    current_messages.append({"role": "user", "content": display_content})
+    
+    # ساخت پیام برای API
+    api_content = [{"type": "text", "text": text_to_process if text_to_process else "این فایل را تحلیل کن."}]
+    
+    for file in files_to_process:
+        if file.type.startswith("image"):
+            image_bytes = file.getvalue()
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            api_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
+            })
+        elif file.type == "application/pdf":
+            try:
+                pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.getvalue()))
+                pdf_text = ""
+                for page in pdf_reader.pages:
+                    pdf_text += page.extract_text() + "\n"
                 api_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{file.type};base64,{base64_image}"}
+                    "type": "text",
+                    "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..."
                 })
-            elif file.type == "application/pdf":
-                try:
-                    pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.getvalue()))
-                    pdf_text = ""
-                    for page in pdf_reader.pages:
-                        pdf_text += page.extract_text() + "\n"
-                    
-                    api_content.append({
-                        "type": "text",
-                        "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..." 
-                    })
-                except Exception as e:
-                    st.error(f"خطا در خواندن PDF: {e}")
-        
-        current_messages.append({"role": "user", "content": display_content})
-        
-        sys_prompt = t["system_prompt"].format(tone=tone_value)
-        if direction == "rtl": 
-            sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
+            except Exception as e:
+                st.error(f"خطا در خواندن PDF: {e}")
+    
+    # ارسال به API و دریافت پاسخ
+    sys_prompt = t["system_prompt"].format(tone=tone_value)
+    if direction == "rtl":
+        sys_prompt += " کاربر به زبان فارسی صحبت می‌کند، لطفاً به فارسی روان پاسخ بده."
 
-        api_messages = [{"role": "system", "content": sys_prompt}]
-        for m in current_messages[:-1]:
-            api_messages.append({"role": m["role"], "content": m["content"]})
-        api_messages.append({"role": "user", "content": api_content})
+    api_messages = [{"role": "system", "content": sys_prompt}]
+    for m in current_messages[:-1]:
+        api_messages.append({"role": m["role"], "content": m["content"]})
+    api_messages.append({"role": "user", "content": api_content})
 
-        try:
-            with st.spinner("در حال فکر کردن..."):
-                stream = client.chat.completions.create(
-                    model="qwen/qwen3.8-27b",
-                    messages=api_messages, 
-                    temperature=1.0, 
-                    stream=True,
-                    max_tokens=600
-                )
-                response = st.write_stream(stream)
-                current_messages.append({"role": "assistant", "content": response})
-                st.rerun()
-        except Exception as e:
-            st.error(f"Connection error: {e}")
+    try:
+        with st.spinner("در حال فکر کردن..."):
+            stream = client.chat.completions.create(
+                model="qwen/qwen3.8-27b",
+                messages=api_messages,
+                temperature=1.0,
+                stream=True,
+                max_tokens=600
+            )
+            response = st.write_stream(stream)
+            current_messages.append({"role": "assistant", "content": response})
+            st.rerun()
+    except Exception as e:
+        st.error(f"Connection error: {e}")
