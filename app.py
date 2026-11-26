@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import OpenAI
 import os
 import urllib.parse
@@ -7,9 +8,17 @@ import PyPDF2
 import io
 
 # ==========================================
+# ۰. تنظیمات PWA (برای PWABuilder)
+# ==========================================
+pwa_html = """
+<link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Vardast%22,%22short_name%22:%22Vardast%22,%22description%22:%22A smart assistant for you, free and accessible.%22,%22start_url%22:%22/%22,%22display%22:%22standalone%22,%22orientation%22:%22portrait-primary%22,%22background_color%22:%22%230e1117%22,%22theme_color%22:%22%230e1117%22,%22lang%22:%22fa%22,%22dir%22:%22rtl%22,%22icons%22:[{%22src%22:%22https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/26a1.png%22,%22sizes%22:%2272x72%22,%22type%22:%22image/png%22}]}">
+"""
+components.html(pwa_html, height=0, width=0)
+
+# ==========================================
 # ۱. تنظیمات ظاهری (طراحی مدرن)
 # ==========================================
-st.set_page_config(page_title="Vardast | ور دست", page_icon="✨", layout="wide")
+st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
@@ -63,22 +72,22 @@ st.markdown("""
 # ==========================================
 LANGUAGES = {
     "English": {
-        "title": "Vardast ✨", "caption": "Your smart, free assistant.",
+        "title": "Vardast ⚡", "caption": "Your smart, free assistant.",
         "language": "Language", "theme": "Theme", "tone": "Tone",
         "tone_opts": {"Friendly": "Friendly", "Professional": "Professional", "Creative": "Creative", "Direct": "Direct"},
         "new_chat": "➕ New Chat", "chat_list": "History", "clear_chat": "🗑️ Clear Chat",
         "force_fa": "Force Persian Input", "placeholder": "Type here...",
         "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
-        "creator": "Made with ❤️ by Parsa"
+        "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
     "فارسی": {
-        "title": "ور دست ✨", "caption": "دستیار هوشمند، رایگان و در دسترس همه",
+        "title": "ور دست ⚡", "caption": "دستیار هوشمند، رایگان و در دسترس همه",
         "language": "زبان", "theme": "تم", "tone": "لحن",
         "tone_opts": {"دوستانه": "دوستانه", "حرفه‌ای": "حرفه‌ای", "خلاقانه": "خلاقانه", "مستقیم": "مستقیم"},
         "new_chat": "➕ چت جدید", "chat_list": "تاریخچه", "clear_chat": "🗑️ پاک کردن",
         "force_fa": "ورودی انگلیسی", "placeholder": "اینجا بنویس...",
         "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
-        "creator": "ساخته شده با ❤️ توسط پارسا"
+        "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
 }
 
@@ -209,7 +218,7 @@ if prompt:
                 
                 api_content.append({
                     "type": "text",
-                    "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..."  # محدود کردن به ۲۰۰۰ کاراکتر اول
+                    "text": f"متن استخراج شده از فایل PDF:\n{pdf_text[:2000]}..." 
                 })
             except Exception as e:
                 st.error(f"خطا در خواندن PDF: {e}")
