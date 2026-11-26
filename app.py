@@ -24,17 +24,102 @@ st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Vazirmatn:wght@300;400;700&display=swap');
+    
     html, body, [class*="css"] { font-family: 'Poppins', 'Vazirmatn', sans-serif; }
     .rtl { direction: rtl; text-align: right; }
-    .header-style { background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%); padding: 25px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); }
-    [data-testid="stChatMessage"] { border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.03); backdrop-filter: blur(10px); }
-    [data-testid="stSidebar"] .stButton > button { background: rgba(255, 255, 255, 0.03); color: #e0e0e0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; transition: all 0.3s ease; backdrop-filter: blur(5px); }
-    [data-testid="stSidebar"] .stButton > button:hover { background: rgba(255, 255, 255, 0.1); border-color: #4A90E2; color: white; transform: translateY(-2px); }
-    .stTextArea textarea { border-radius: 15px !important; padding: 15px !important; background-color: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; font-size: 16px !important; }
-    div.stButton > button[kind="primary"] { border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }
-    div.stButton > button[kind="primary"]:hover { transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }
-    div[data-testid="column"] button { border-radius: 50% !important; padding: 5px !important; width: 40px !important; height: 40px !important; background: rgba(255,255,255,0.05) !important; border: 1px solid rgba(255,255,255,0.1) !important; font-size: 18px !important; }
-    div[data-testid="column"] button:hover { background: rgba(255,255,255,0.15) !important; border-color: #4A90E2 !important; }
+    
+    /* هدر */
+    .header-style {
+        background: linear-gradient(135deg, #1E232F 0%, #0E1117 100%);
+        padding: 25px; border-radius: 20px; margin-bottom: 25px;
+        border: 1px solid rgba(255,255,255,0.05);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    
+    /* حباب‌های چت */
+    [data-testid="stChatMessage"] {
+        border-radius: 20px; padding: 20px; margin-bottom: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255,255,255,0.03);
+        backdrop-filter: blur(10px);
+    }
+    
+    /* دکمه‌های منوی کناری */
+    [data-testid="stSidebar"] .stButton > button {
+        background: rgba(255, 255, 255, 0.03); color: #e0e0e0;
+        border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+        transition: all 0.3s ease; backdrop-filter: blur(5px);
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: rgba(255, 255, 255, 0.1); border-color: #4A90E2;
+        color: white; transform: translateY(-2px);
+    }
+    
+    /* کادر متن */
+    .stTextArea textarea {
+        border-radius: 15px !important; padding: 15px !important;
+        background-color: rgba(0,0,0,0.2) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: white !important; font-size: 16px !important;
+    }
+    
+    /* دکمه ارسال */
+    div.stButton > button[kind="primary"] {
+        border-radius: 50px !important;
+        background: linear-gradient(90deg, #4A90E2, #8E44AD) !important;
+        color: white !important; border: none !important;
+        padding: 10px 30px !important; font-weight: 600 !important;
+        box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important;
+        transition: all 0.3s ease !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: scale(1.02) !important;
+        box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important;
+    }
+    
+    /* دکمه‌های آیکونی ریز */
+    div[data-testid="column"] button {
+        border-radius: 8px !important;
+        padding: 5px !important;
+        width: 35px !important;
+        height: 35px !important;
+        background: transparent !important;
+        border: none !important;
+        font-size: 18px !important;
+        color: #888 !important;
+        transition: all 0.2s ease !important;
+    }
+    div[data-testid="column"] button:hover {
+        color: white !important;
+        background: rgba(255,255,255,0.1) !important;
+    }
+    
+    /* انیمیشن سه نقطه (Typing Indicator) */
+    .typing-indicator {
+        display: inline-block;
+        position: relative;
+        width: 40px;
+        height: 20px;
+    }
+    .typing-indicator::before, .typing-indicator::after, .typing-indicator span {
+        content: '';
+        position: absolute;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        background-color: #888;
+        border-radius: 50%;
+        transform: translateY(-50%);
+        animation: typing 1.4s infinite ease-in-out both;
+    }
+    .typing-indicator::before { left: 0; animation-delay: -0.32s; }
+    .typing-indicator span { left: 12px; animation-delay: -0.16s; }
+    .typing-indicator::after { left: 24px; }
+    
+    @keyframes typing {
+        0%, 80%, 100% { transform: translateY(-50%) scale(0); }
+        40% { transform: translateY(-50%) scale(1); }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -50,7 +135,6 @@ LANGUAGES = {
         "force_fa": "Force Persian Input", "placeholder": "Type your message here...",
         "send_btn": "Send 🚀", "upload_label": "Attach file (Optional)",
         "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
-        "copy_btn": "📋", "listen_btn": "🔊",
         "system_prompt": "You are 'Vardast'. Be concise. If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]'. Tone: {tone}.",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
@@ -62,7 +146,6 @@ LANGUAGES = {
         "force_fa": "ورودی انگلیسی", "placeholder": "پیام خود را اینجا بنویسید...",
         "send_btn": "ارسال 🚀", "upload_label": "📎 پیوست فایل (اختیاری)",
         "welcome": "👋 سلام! من **ور دست** هستم. چطور می‌تونم امروز کمکت کنم؟",
-        "copy_btn": "📋", "listen_btn": "🔊",
         "system_prompt": "تو 'ور دست' هستی. مختصر جواب بده. اگر خواست عکس بسازی دقیقاً بنویس 'IMAGE_GEN: [توضیح انگلیسی]'. لحن: {tone}.",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
@@ -83,10 +166,7 @@ client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 # ==========================================
 if "chats" not in st.session_state: st.session_state.chats = {"Chat 1": []}
 if "current_chat" not in st.session_state: st.session_state.current_chat = "Chat 1"
-
-# کلید پویا برای کادر متن (برای جلوگیری از خطا)
-if "input_key_counter" not in st.session_state:
-    st.session_state.input_key_counter = 0
+if "input_key_counter" not in st.session_state: st.session_state.input_key_counter = 0
 
 # ==========================================
 # ۵. منوی کناری
@@ -171,13 +251,18 @@ for i, message in enumerate(current_messages):
             else: st.markdown(message["content"])
             
             if message["role"] == "assistant":
-                col1, col2, col3 = st.columns([1, 1, 8])
+                # دکمه‌های آیکونی دقیقاً مثل طرحی که فرستادی
+                col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 8])
                 with col1:
-                    if st.button(t["copy_btn"], key=f"copy_{i}"):
+                    if st.button("📋", key=f"copy_{i}", help="کپی"):
                         components.html(f"<script>navigator.clipboard.writeText(`{message['content']}`);</script>", height=0)
-                        st.toast("متن کپی شد! ✅")
+                        st.toast("کپی شد! ✅")
                 with col2:
-                    if st.button(t["listen_btn"], key=f"tts_{i}"):
+                    st.button("👍", key=f"like_{i}", help="لایک")
+                with col3:
+                    st.button("👎", key=f"dislike_{i}", help="دیس‌لایک")
+                with col4:
+                    if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
                             tts = gTTS(text=message["content"], lang=lang_code)
@@ -187,16 +272,18 @@ for i, message in enumerate(current_messages):
                             st.audio(audio_buffer, format="audio/mp3")
                         except Exception as e:
                             st.error(f"خطا در پخش صدا: {e}")
+                with col5:
+                    if st.button("↗️", key=f"share_{i}", help="اشتراک‌گذاری"):
+                        st.toast("قابلیت اشتراک‌گذاری به زودی...")
 
 # ==========================================
-# ۹. کادر ورودی و ارسال (روش کلید پویا)
+# ۹. کادر ورودی و ارسال
 # ==========================================
 st.write("")
 
 with st.expander(t["upload_label"], expanded=False):
     uploaded_files = st.file_uploader("", accept_multiple_files=True, type=["jpg", "jpeg", "png", "pdf"], label_visibility="collapsed")
 
-# استفاده از کلید پویا برای جلوگیری از خطا
 current_input_key = f"input_text_{st.session_state.input_key_counter}"
 user_text = st.text_area(t["placeholder"], height=100, key=current_input_key, label_visibility="collapsed")
 
@@ -204,15 +291,12 @@ send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True
 
 if send_clicked:
     if user_text.strip() or uploaded_files:
-        # ذخیره پیام و فایل‌ها
         st.session_state.pending_text = user_text
         st.session_state.pending_files = uploaded_files
-        
-        # افزایش شمارنده کلید برای خالی شدن کادر در اجرای بعدی
         st.session_state.input_key_counter += 1
         st.rerun()
 
-# پردازش پیام (بعد از رفرش)
+# پردازش پیام
 if "pending_text" in st.session_state and st.session_state.pending_text:
     text_to_process = st.session_state.pending_text
     files_to_process = st.session_state.pending_files if "pending_files" in st.session_state else []
@@ -260,7 +344,10 @@ if "pending_text" in st.session_state and st.session_state.pending_text:
     api_messages.append({"role": "user", "content": api_content})
 
     try:
-        with st.spinner("در حال فکر کردن..."):
+        # نمایش انیمیشن سه نقطه به جای متن "در حال فکر کردن"
+        with st.chat_message("assistant", avatar="⚡"):
+            st.markdown('<div class="typing-indicator"><span></span></div>', unsafe_allow_html=True)
+            
             stream = client.chat.completions.create(
                 model="qwen/qwen3.8-27b",
                 messages=api_messages,
@@ -272,4 +359,5 @@ if "pending_text" in st.session_state and st.session_state.pending_text:
             current_messages.append({"role": "assistant", "content": response})
             st.rerun()
     except Exception as e:
-        st.error(f"Connection error: {e}")
+        st.error(f"⚠️ خطای اتصال: {e}")
+        st.info("💡 لطفاً VPN خود را روشن کنید و دوباره تلاش کنید.")
