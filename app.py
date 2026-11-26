@@ -6,7 +6,7 @@ import urllib.parse
 import base64
 import PyPDF2
 import io
-from gtts import gTTS  # کتابخانه تبدیل متن به صدا
+from gtts import gTTS
 
 # ==========================================
 # ۰. تنظیمات PWA (برای PWABuilder)
@@ -77,7 +77,7 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important;
     }
     
-    /* استایل دکمه‌های کوچیک (کپی و بلندگو) */
+    /* دکمه‌های کوچیک (کپی و بلندگو) */
     div[data-testid="column"] button {
         border-radius: 50% !important;
         padding: 5px !important;
@@ -231,7 +231,6 @@ for i, message in enumerate(current_messages):
                         st.toast("متن کپی شد! ✅")
                 
                 with col2:
-                    # دکمه پخش صدا با آیکون بلندگو
                     if st.button(t["listen_btn"], key=f"tts_{i}"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
@@ -244,8 +243,11 @@ for i, message in enumerate(current_messages):
                             st.error(f"خطا در پخش صدا: {e}")
 
 # ==========================================
-# ۹. کادر ورودی و ارسال
+# ۹. کادر ورودی و ارسال (اصلاح‌شده)
 # ==========================================
+def clear_text():
+    st.session_state.input_text = ""
+
 st.write("")
 
 with st.expander(t["upload_label"], expanded=False):
@@ -255,7 +257,7 @@ user_text = st.text_area(t["placeholder"], height=100, key="input_text", label_v
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True)
+    send_clicked = st.button(t["send_btn"], type="primary", use_container_width=True, on_click=clear_text)
 
 if send_clicked:
     if user_text.strip() or uploaded_files:
@@ -288,7 +290,6 @@ if send_clicked:
                     st.error(f"خطا در خواندن PDF: {e}")
         
         current_messages.append({"role": "user", "content": display_content})
-        st.session_state.input_text = "" 
         
         sys_prompt = t["system_prompt"].format(tone=tone_value)
         if direction == "rtl": 
