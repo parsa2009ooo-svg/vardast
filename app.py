@@ -21,7 +21,6 @@ components.html(pwa_html, height=0, width=0)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
-# لینک عکس تخت جمشید (با کیفیت و رایگان)
 PERSIPOLIS_IMAGE = "https://images.unsplash.com/photo-1590076214221-87678f4f8b14?q=80&w=2070&auto=format&fit=crop"
 
 st.markdown(f"""
@@ -31,7 +30,7 @@ st.markdown(f"""
     html, body, [class*="css"] {{ font-family: 'Poppins', 'Vazirmatn', sans-serif; }}
     .rtl {{ direction: rtl; text-align: right; }}
     
-    /* === پس‌زمینه تخت جمشید (مات و تیره) === */
+    /* پس‌زمینه تخت جمشید */
     .stApp {{
         background-image: linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.95)), url("{PERSIPOLIS_IMAGE}");
         background-size: cover;
@@ -43,7 +42,7 @@ st.markdown(f"""
     /* هدر */
     .header-style {{ background: rgba(30, 35, 47, 0.7); backdrop-filter: blur(15px); padding: 25px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); }}
     
-    /* حباب‌های چت (شیشه‌ای) */
+    /* حباب‌های چت */
     [data-testid="stChatMessage"] {{ background: rgba(30, 35, 47, 0.6) !important; backdrop-filter: blur(20px); border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); }}
     
     /* دکمه‌های منوی کناری */
@@ -57,7 +56,7 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] {{ border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }}
     div.stButton > button[kind="primary"]:hover {{ transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }}
     
-    /* دکمه‌های آیکونی (همون دکمه‌های خوب قبلی) */
+    /* === دکمه‌های آیکونی در یک ردیف === */
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {{
         background: rgba(255, 255, 255, 0.08) !important;
         backdrop-filter: blur(10px) !important;
@@ -66,12 +65,13 @@ st.markdown(f"""
         width: 40px !important;
         height: 40px !important;
         padding: 0 !important;
-        font-size: 16px !important;
+        font-size: 18px !important;
         color: #ccc !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         transition: all 0.2s ease !important;
+        margin: 0 auto !important;
     }}
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover {{
         background: rgba(255, 255, 255, 0.2) !important;
@@ -90,7 +90,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# ۲. ساختار چندزبانه (پرامپت بهبود یافته)
+# ۲. ساختار چندزبانه
 # ==========================================
 LANGUAGES = {
     "English": {
@@ -105,7 +105,7 @@ LANGUAGES = {
         "quick_3": "🎨 Generate a cyberpunk image", "download_chat": "📥 Download Chat",
         "system_prompt": """You are 'Vardast', a highly intelligent and precise AI. 
         Provide detailed, accurate, and well-structured answers using Markdown.
-        If asked to generate an image, reply EXACTLY with 'IMAGE_GEN: [English prompt]' on a new line.
+        If asked to generate an image, you MUST reply with EXACTLY this format on a new line: 'IMAGE_GEN: [English prompt]'. Do not add any other text before or after it.
         Tone: {tone}.""",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
     },
@@ -121,7 +121,7 @@ LANGUAGES = {
         "quick_3": "🎨 ساخت عکس سایبرپانک", "download_chat": "📥 دانلود تاریخچه",
         "system_prompt": """تو 'ور دست' هستی، یک دستیار هوش مصنوعی فوق‌العاده باهوش. 
         پاسخ‌هایت باید دقیق، کامل و با استفاده از Markdown باشد.
-        اگر کاربر خواست عکس بسازی، دقیقاً در یک خط جداگانه بنویس: 'IMAGE_GEN: [توضیح انگلیسی]'.
+        اگر کاربر خواست عکس بسازی، باید دقیقاً در یک خط جداگانه اینطور بنویسی: 'IMAGE_GEN: [توضیح انگلیسی]'. هیچ متن دیگری قبل یا بعد از آن ننویس.
         لحن تو باید {tone} باشد.""",
         "creator": "ساخته شده با ❤️ توسط سید محمد پارسا حسینی"
     }
@@ -193,7 +193,7 @@ with st.sidebar:
 if theme_choice == "Dark":
     st.markdown("<style>[data-testid='stChatMessage'] { background-color: rgba(30, 35, 47, 0.7) !important; }</style>", unsafe_allow_html=True)
 else:
-    st.markdown("<style>.stApp { background-image: linear-gradient(rgba(248, 249, 250, 0.85), rgba(248, 249, 250, 0.95)), url('" + PERSIPOLIS_IMAGE + "') !important; color: #333; } [data-testid='stChatMessage'] { background-color: rgba(255, 255, 255, 0.7) !important; color: #333; }</style>", unsafe_allow_html=True)
+    st.markdown("<style>.stApp { background-image: linear-gradient(rgba(248, 249, 250, 0.85), rgba(248, 249, 250, 0.95)), url('" + PERSIPOLIS_IMAGE + "') !important; color: #333; } [data-testid='stChatMessage'] { background-color: rgba(255, 255, 255, 0.8) !important; color: #333; }</style>", unsafe_allow_html=True)
 
 # ==========================================
 # ۷. هدر
@@ -221,9 +221,16 @@ if len(current_messages) == 0:
     
     st.write("")
     c1, c2, c3 = st.columns(3)
-    if c1.button(t["quick_1"], use_container_width=True): st.session_state.quick_prompt = "این متن را به انگلیسی ترجمه کن: "
-    if c2.button(t["quick_2"], use_container_width=True): st.session_state.quick_prompt = "فیزیک کوانتوم را به زبان ساده توضیح بده."
-    if c3.button(t["quick_3"], use_container_width=True): st.session_state.quick_prompt = "یه عکس از یک شهر سایبرپانک در شب بساز."
+    # دکمه‌های پیشنهاد سریع (بهبود یافته)
+    if c1.button(t["quick_1"], use_container_width=True): 
+        st.session_state.quick_prompt = "Translate this text to English: "
+        st.rerun()
+    if c2.button(t["quick_2"], use_container_width=True): 
+        st.session_state.quick_prompt = "Explain quantum physics in simple terms."
+        st.rerun()
+    if c3.button(t["quick_3"], use_container_width=True): 
+        st.session_state.quick_prompt = "Generate an image of a cyberpunk city at night."
+        st.rerun()
 
 for i, message in enumerate(current_messages):
     avatar = "👤" if message["role"] == "user" else "⚡"
@@ -248,7 +255,7 @@ for i, message in enumerate(current_messages):
             else: st.markdown(content)
             
             if message["role"] == "assistant":
-                # دکمه‌های آیکونی (همون دکمه‌های خوب قبلی)
+                # دکمه‌های آیکونی (در یک ردیف)
                 col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
                 with col1:
                     if st.button("📋", key=f"copy_{i}", help="کپی"):
@@ -264,18 +271,16 @@ for i, message in enumerate(current_messages):
                     if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
-                            # استفاده از سرویس Google Translate TTS (پایدارتر از gTTS)
                             url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={urllib.parse.quote(content[:200])}&tl={lang_code}&client=tw-ob"
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             response = requests.get(url, headers=headers)
-                            
                             if response.status_code == 200:
                                 audio_buffer = io.BytesIO(response.content)
                                 st.audio(audio_buffer, format="audio/mp3")
                             else:
-                                st.warning("⚠️ سرویس صوتی موقتاً در دسترس نیست.")
+                                st.warning("⚠️ سرویس صوتی پاسخ نداد.")
                         except Exception as e:
-                            st.warning(f"⚠️ خطا در پخش صدا: {e}")
+                            st.warning(f"⚠️ خطا در صدا: {e}")
                 with col5:
                     if st.button("↗️", key=f"share_{i}", help="اشتراک"):
                         st.toast("لینک کپی شد! (به زودی)")
