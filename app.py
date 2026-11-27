@@ -1,1068 +1,481 @@
-
-import streamlit as st
-import streamlit.components.v1 as components
-from openai import OpenAI
-from gtts import gTTS
 import os
 import io
-import json
 import base64
-import sqlite3
-import hashlib
-import secrets
-import urllib.parse
-import requests
-import PyPDF2
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
-# =====================================================
-# 1. PAGE CONFIG
-# =====================================================
+import streamlit as st
+from openai import OpenAI
+from supabase import create_client, Client
+from gtts import gTTS
+from PyPDF2 import PdfReader
+import requests
+
+# ------------------------------------------------------------
+# Vardast v2 - Streamlit + Groq + Supabase + Pollinations
+# Secrets are read from environment variables (Render).
+# ------------------------------------------------------------
 
 st.set_page_config(
     page_title="Vardast | ور دست",
-    page_icon="⚡",
+    page_icon="✨",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 APP_NAME = "ور دست"
 CREATOR = "سید محمد پارسا حسینی"
 
-# =====================================================
-# 2. DATABASE - PERMANENT USER DATA
-# =====================================================
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
+POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
+IMAGE_MODEL = os.getenv("POLLINATIONS_IMAGE_MODEL", "black-forest-labs/flux.1-schnell").strip()
 
-if os.path.isdir("/var/data"):
-    DB_PATH = os.getenv("DB_PATH", "/var/data/vardast.db")
-else:
-    DB_PATH = os.getenv("DB_PATH", "vardast.db")
+SYSTEM_PROMPT = """
+تو «ور دست» هستی؛ یک دستیار هوشمند دقیق، خوش‌برخورد و کاربردی.
+به زبان کاربر پاسخ بده. اگر کاربر فارسی نوشت، فارسی روان و قابل فهم بنویس.
+اگر پاسخ را نمی‌دانی، صادقانه بگو و اطلاعات ساختگی نساز.
+برای آموزش برنامه‌نویسی، مرحله‌به‌مرحله و با مثال توضیح بده.
+"""
 
-
-def db():
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
-def init_db():
-    with db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS chats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-                ON DELETE CASCADE
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(chat_id) REFERENCES chats(id)
-                ON DELETE CASCADE
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                reaction TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id),
-                FOREIGN KEY(message_id) REFERENCES messages(id)
-            )
-        """)
-
-
-init_db()
-
-
-def now():
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def hash_password(password, salt=None):
-    salt = salt or secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        salt.encode(),
-        200000
-    ).hex()
-    return salt + "$" + hashed
-
-
-def verify_password(password, stored):
-    try:
-        salt, old_hash = stored.split("$")
-        return secrets.compare_digest(
-            hash_password(password, salt).split("$")[1],
-            old_hash
-        )
-    except Exception:
-        return False
-
-
-def create_user(username, password):
-    try:
-        with db() as conn:
-            conn.execute(
-                "INSERT INTO users(username,password,created_at) VALUES(?,?,?)",
-                (username, hash_password(password), now())
-            )
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def login_user(username, password):
-    with db() as conn:
-        user = conn.execute(
-            "SELECT * FROM users WHERE username=?",
-            (username,)
-        ).fetchone()
-
-    if user and verify_password(password, user["password"]):
-        return user["id"]
-
-    return None
-
-
-def get_chats(user_id):
-    with db() as conn:
-        return conn.execute(
-            "SELECT * FROM chats WHERE user_id=? ORDER BY id DESC",
-            (user_id,)
-        ).fetchall()
-
-
-def create_chat(user_id, title="گفتگوی جدید"):
-    with db() as conn:
-        cur = conn.execute(
-            "INSERT INTO chats(user_id,title,created_at) VALUES(?,?,?)",
-            (user_id, title, now())
-        )
-        return cur.lastrowid
-
-
-def rename_chat(chat_id, user_id, title):
-    with db() as conn:
-        conn.execute(
-            "UPDATE chats SET title=? WHERE id=? AND user_id=?",
-            (title, chat_id, user_id)
-        )
-
-
-def delete_chat(chat_id, user_id):
-    with db() as conn:
-        conn.execute(
-            "DELETE FROM chats WHERE id=? AND user_id=?",
-            (chat_id, user_id)
-        )
-
-
-def get_messages(chat_id):
-    with db() as conn:
-        return conn.execute(
-            "SELECT * FROM messages WHERE chat_id=? ORDER BY id",
-            (chat_id,)
-        ).fetchall()
-
-
-def save_message(chat_id, role, content):
-    with db() as conn:
-        cur = conn.execute(
-            """INSERT INTO messages(chat_id,role,content,created_at)
-               VALUES(?,?,?,?)""",
-            (chat_id, role, content, now())
-        )
-        return cur.lastrowid
-
-
-def save_feedback(user_id, message_id, reaction):
-    with db() as conn:
-        conn.execute(
-            """INSERT INTO feedback(user_id,message_id,reaction)
-               VALUES(?,?,?)""",
-            (user_id, message_id, reaction)
-        )
-
-
-# =====================================================
-# 3. API CONFIGURATION
-# =====================================================
-
-try:
-    API_KEY = st.secrets["GROQ_API_KEY"]
-except Exception:
-    API_KEY = os.getenv("GROQ_API_KEY")
-
-client = None
-
-if API_KEY:
-    client = OpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=API_KEY
-    )
-
-CHAT_MODEL = os.getenv(
-    "GROQ_MODEL",
-    "llama-3.3-70b-versatile"
-)
-
-VISION_MODEL = os.getenv(
-    "GROQ_VISION_MODEL",
-    "meta-llama/llama-4-scout-17b-16e-instruct"
-)
-
-# =====================================================
-# 4. SESSION STATE
-# =====================================================
-
-defaults = {
-    "user_id": None,
-    "username": None,
-    "chat_id": None,
-    "theme": "Dark",
-    "language": "فارسی",
-    "tone": "دوستانه",
-    "creativity": 1.5,
-    "pending_prompt": "",
-    "show_register": False
+# ---- Styling ----
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+html, body, [class*="css"] { font-family: 'Vazirmatn', sans-serif; }
+.block-container { padding-top: 1.4rem; max-width: 1200px; }
+.hero {
+  padding: 1.25rem 1.4rem; border-radius: 20px;
+  background: linear-gradient(125deg, #171b3b, #263d73 60%, #345c91);
+  color: white; margin-bottom: 1rem;
 }
+.hero h1 { margin: 0; font-size: 2rem; }
+.hero p { margin: .45rem 0 0 0; opacity: .9; }
+.small-muted { color: #8a8f9c; font-size: .85rem; }
+.stButton>button { border-radius: 12px; min-height: 2.6rem; }
+[data-testid="stChatMessage"] { border-radius: 15px; }
+</style>
+""", unsafe_allow_html=True)
 
+# ---- Clients ----
+@st.cache_resource
+def get_groq_client():
+    if not GROQ_API_KEY:
+        return None
+    return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+
+@st.cache_resource
+def get_supabase_client():
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return None
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+groq = get_groq_client()
+supabase = get_supabase_client()
+
+# ---- Session state ----
+defaults = {
+    "user": None,
+    "access_token": None,
+    "active_chat": None,
+    "messages": [],
+    "chats": [],
+    "tone": "دوستانه و روشن",
+    "language": "خودکار",
+    "pending_prompt": "",
+    "last_image": None,
+}
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
+def user_id():
+    u = st.session_state.user
+    if not u:
+        return None
+    return getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
 
-# =====================================================
-# 5. CSS / DESIGN
-# =====================================================
+def db_ready():
+    return supabase is not None and st.session_state.user is not None
 
-PERSIPOLIS_IMAGE = (
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/"
-    "6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
-)
+def show_error(title, err):
+    st.error(f"{title}: {str(err)[:500]}")
 
-st.markdown(f"""
-<style>
-
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
-
-html, body, [class*="css"] {{
-    font-family: 'Vazirmatn', sans-serif;
-}}
-
-.stApp {{
-    background:
-    linear-gradient(rgba(10,12,19,.91),rgba(10,12,19,.97)),
-    url("{PERSIPOLIS_IMAGE}");
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-}}
-
-[data-testid="stSidebar"] {{
-    background: rgba(13,16,25,.96);
-    border-right: 1px solid rgba(255,255,255,.08);
-}}
-
-[data-testid="stChatMessage"] {{
-    background: rgba(28,32,45,.83);
-    border: 1px solid rgba(255,255,255,.09);
-    border-radius: 20px;
-    padding: 18px;
-    margin-bottom: 15px;
-}}
-
-.stTextArea textarea, .stTextInput input {{
-    border-radius: 15px !important;
-    background: rgba(25,25,29,.9) !important;
-    color: white !important;
-}}
-
-.stButton button, .stDownloadButton button {{
-    border-radius: 13px;
-    transition: .2s;
-}}
-
-.stButton button:hover {{
-    border-color: #8e44ad;
-    transform: translateY(-2px);
-}}
-
-div.stButton > button[kind="primary"] {{
-    background: linear-gradient(90deg,#4A90E2,#8E44AD);
-    color: white;
-    border: none;
-    border-radius: 30px;
-    font-weight: bold;
-}}
-
-.header-box {{
-    background: rgba(35,39,55,.78);
-    border: 1px solid rgba(255,255,255,.12);
-    padding: 22px;
-    border-radius: 22px;
-    text-align: center;
-    margin-bottom: 25px;
-}}
-
-.brand {{
-    font-size: 38px;
-    font-weight: 700;
-}}
-
-.muted {{
-    color: #aaa;
-    font-size: 13px;
-}}
-
-.rtl {{
-    direction: rtl;
-    text-align: right;
-}}
-
-</style>
-""", unsafe_allow_html=True)
-
-
-# =====================================================
-# 6. AUTHENTICATION
-# =====================================================
-
-if st.session_state.user_id is None:
-
-    st.markdown("""
-    <div class="header-box">
-        <div class="brand">ور دست ⚡</div>
-        <p>دستیار هوشمند، خلاق و همیشه در دسترس</p>
+# ---- Auth ----
+def auth_screen():
+    st.markdown(f"""
+    <div class="hero">
+      <h1>✨ ور دست</h1>
+      <p>دستیار هوشمند تو برای یادگیری، ایده‌پردازی و ساختن</p>
     </div>
     """, unsafe_allow_html=True)
 
-    tab_login, tab_register = st.tabs(["ورود", "ثبت نام"])
+    if supabase is None:
+        st.warning("اتصال Supabase هنوز تنظیم نشده است. ابتدا SUPABASE_URL و SUPABASE_ANON_KEY را در Render اضافه کن.")
+        st.code("SUPABASE_URL\nSUPABASE_ANON_KEY")
+        st.info("برای امنیت، کلیدها را در Render وارد کن؛ آن‌ها را در کد یا چت عمومی قرار نده.")
+        return
 
+    tab_login, tab_signup = st.tabs(["ورود", "ساخت حساب"])
     with tab_login:
         with st.form("login_form"):
-            username = st.text_input("نام کاربری")
-            password = st.text_input("رمز عبور", type="password")
-            login = st.form_submit_button("ورود به حساب", use_container_width=True)
-
-        if login:
-            uid = login_user(username.strip(), password)
-            if uid:
-                st.session_state.user_id = uid
-                st.session_state.username = username.strip()
-
-                chats = get_chats(uid)
-                if chats:
-                    st.session_state.chat_id = chats[0]["id"]
-                else:
-                    st.session_state.chat_id = create_chat(uid)
-
+            email = st.text_input("ایمیل", key="login_email")
+            password = st.text_input("رمز عبور", type="password", key="login_password")
+            submit = st.form_submit_button("ورود", use_container_width=True)
+        if submit:
+            try:
+                result = supabase.auth.sign_in_with_password({"email": email.strip(), "password": password})
+                st.session_state.user = result.user
+                st.session_state.access_token = result.session.access_token if result.session else None
+                st.session_state.active_chat = None
+                st.session_state.messages = []
                 st.rerun()
-            else:
-                st.error("نام کاربری یا رمز عبور اشتباه است.")
+            except Exception as e:
+                show_error("ورود انجام نشد. ایمیل و رمز را بررسی کن", e)
 
-    with tab_register:
-        with st.form("register_form"):
-            new_username = st.text_input("نام کاربری جدید")
-            new_password = st.text_input("رمز عبور جدید", type="password")
-            confirm_password = st.text_input("تکرار رمز عبور", type="password")
-            register = st.form_submit_button("ساخت حساب", use_container_width=True)
-
-        if register:
-            if len(new_username.strip()) < 3:
-                st.error("نام کاربری باید حداقل ۳ حرف باشد.")
-            elif len(new_password) < 8:
+    with tab_signup:
+        with st.form("signup_form"):
+            email2 = st.text_input("ایمیل", key="signup_email")
+            password2 = st.text_input("رمز عبور (حداقل ۸ کاراکتر)", type="password", key="signup_password")
+            password3 = st.text_input("تکرار رمز عبور", type="password")
+            submit2 = st.form_submit_button("ساخت حساب", use_container_width=True)
+        if submit2:
+            if password2 != password3:
+                st.error("رمزها یکسان نیستند.")
+            elif len(password2) < 8:
                 st.error("رمز عبور باید حداقل ۸ کاراکتر باشد.")
-            elif new_password != confirm_password:
-                st.error("رمزهای عبور یکسان نیستند.")
-            elif create_user(new_username.strip(), new_password):
-                st.success("حساب ساخته شد. حالا وارد شوید.")
             else:
-                st.error("این نام کاربری قبلاً استفاده شده است.")
+                try:
+                    result = supabase.auth.sign_up({"email": email2.strip(), "password": password2})
+                    if result.session:
+                        st.session_state.user = result.user
+                        st.session_state.access_token = result.session.access_token
+                        st.rerun()
+                    else:
+                        st.success("حساب ساخته شد. اگر تأیید ایمیل فعال است، ایمیلت را تأیید کن و سپس وارد شو.")
+                except Exception as e:
+                    show_error("ساخت حساب انجام نشد", e)
 
-    st.stop()
+def load_chats():
+    try:
+        res = (supabase.table("conversations")
+               .select("id,title,created_at,updated_at")
+               .eq("user_id", user_id())
+               .order("updated_at", desc=True)
+               .execute())
+        st.session_state.chats = res.data or []
+    except Exception as e:
+        show_error("خواندن فهرست گفتگوها ناموفق بود", e)
+        st.session_state.chats = []
 
+def load_messages(chat_id):
+    try:
+        res = (supabase.table("messages")
+               .select("id,role,content,created_at")
+               .eq("conversation_id", chat_id)
+               .order("created_at")
+               .execute())
+        st.session_state.messages = [
+            {"role": r["role"], "content": r["content"]}
+            for r in (res.data or [])
+        ]
+    except Exception as e:
+        show_error("خواندن پیام‌ها ناموفق بود", e)
+        st.session_state.messages = []
 
-# =====================================================
-# 7. SIDEBAR
-# =====================================================
+def new_chat():
+    title = "گفتگوی تازه"
+    try:
+        res = supabase.table("conversations").insert({
+            "user_id": user_id(), "title": title
+        }).execute()
+        row = res.data[0]
+        st.session_state.active_chat = row["id"]
+        st.session_state.messages = []
+        load_chats()
+    except Exception as e:
+        show_error("ساخت گفتگوی تازه ناموفق بود", e)
 
-with st.sidebar:
+def save_message(role, content):
+    if not db_ready() or not st.session_state.active_chat:
+        return
+    try:
+        supabase.table("messages").insert({
+            "conversation_id": st.session_state.active_chat,
+            "user_id": user_id(),
+            "role": role,
+            "content": content,
+        }).execute()
+        supabase.table("conversations").update({
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", st.session_state.active_chat).eq("user_id", user_id()).execute()
+    except Exception as e:
+        show_error("ذخیره پیام ناموفق بود", e)
 
-    st.markdown("## ⚡ ور دست")
-
-    st.caption("خوش آمدی، " + st.session_state.username)
-
-    st.divider()
-
-    st.session_state.language = st.selectbox(
-        "زبان",
-        ["فارسی", "English"],
-        index=0 if st.session_state.language == "فارسی" else 1
-    )
-
-    st.session_state.theme = st.radio(
-        "تم",
-        ["Dark", "Light"],
-        horizontal=True
-    )
-
-    st.session_state.tone = st.selectbox(
-        "لحن پاسخ",
-        ["دوستانه", "حرفه‌ای", "خلاقانه", "مستقیم"]
-    )
-
-    st.markdown("### میزان خلاقیت")
-
-    st.session_state.creativity = st.slider(
-        "خلاقیت",
-        min_value=0.0,
-        max_value=1.5,
-        value=float(st.session_state.creativity),
-        step=0.1
-    )
-
-    st.divider()
-
-    st.markdown("### مدیریت گفتگو")
-
-    if st.button("➕ گفتگوی جدید", use_container_width=True):
-        st.session_state.chat_id = create_chat(
-            st.session_state.user_id
-        )
+def delete_chat(chat_id):
+    try:
+        supabase.table("messages").delete().eq("conversation_id", chat_id).eq("user_id", user_id()).execute()
+        supabase.table("conversations").delete().eq("id", chat_id).eq("user_id", user_id()).execute()
+        if st.session_state.active_chat == chat_id:
+            st.session_state.active_chat = None
+            st.session_state.messages = []
+        load_chats()
         st.rerun()
+    except Exception as e:
+        show_error("حذف گفتگو ناموفق بود", e)
 
-    chats = get_chats(st.session_state.user_id)
+def rename_chat(chat_id, title):
+    try:
+        supabase.table("conversations").update({"title": title}).eq("id", chat_id).eq("user_id", user_id()).execute()
+        load_chats()
+    except Exception as e:
+        show_error("تغییر نام گفتگو ناموفق بود", e)
 
-    if chats:
-        chat_options = {c["title"] + f"  #{c['id']}": c["id"] for c in chats}
+# ---- AI helpers ----
+def build_context(extra_text=""):
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT + f" لحن پاسخ: {st.session_state.tone}. زبان: {st.session_state.language}."}]
+    for m in st.session_state.messages[-18:]:
+        msgs.append({"role": m["role"], "content": m["content"]})
+    if extra_text:
+        msgs.append({"role": "system", "content": "محتوای فایل کاربر برای استفاده در پاسخ:\n" + extra_text[:18000]})
+    return msgs
 
-        selected_chat = st.selectbox(
-            "تاریخچه گفتگوها",
-            list(chat_options.keys()),
-            index=next(
-                (i for i, c in enumerate(chats)
-                 if c["id"] == st.session_state.chat_id),
-                0
-            )
-        )
+def ask_ai(prompt, uploaded_image=None, extra_text=""):
+    if groq is None:
+        raise RuntimeError("کلید GROQ_API_KEY در Render تنظیم نشده است.")
+    model = GROQ_VISION_MODEL if uploaded_image else GROQ_MODEL
+    messages = build_context(extra_text)
+    if uploaded_image:
+        b64 = base64.b64encode(uploaded_image.getvalue()).decode("utf-8")
+        mime = uploaded_image.type or "image/png"
+        user_content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+        ]
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": prompt})
 
-        new_chat_id = chat_options[selected_chat]
-
-        if new_chat_id != st.session_state.chat_id:
-            st.session_state.chat_id = new_chat_id
-            st.rerun()
-
-    with st.expander("تغییر نام گفتگو"):
-        rename_value = st.text_input("نام جدید", key="rename_input")
-
-        if st.button("ذخیره نام"):
-            if rename_value.strip():
-                rename_chat(
-                    st.session_state.chat_id,
-                    st.session_state.user_id,
-                    rename_value.strip()
-                )
-                st.rerun()
-
-    if st.button("🗑️ پاک کردن گفتگو", use_container_width=True):
-        delete_chat(
-            st.session_state.chat_id,
-            st.session_state.user_id
-        )
-        st.session_state.chat_id = create_chat(
-            st.session_state.user_id
-        )
-        st.rerun()
-
-    st.divider()
-
-    if st.button("خروج از حساب", use_container_width=True):
-        st.session_state.user_id = None
-        st.session_state.username = None
-        st.session_state.chat_id = None
-        st.rerun()
-
-    st.divider()
-
-    st.markdown(
-        f"<div style='text-align:center;color:#999;font-size:12px'>"
-        f"ساخته شده با ❤️ توسط<br><b>{CREATOR}</b></div>",
-        unsafe_allow_html=True
+    response = groq.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=1800,
     )
-
-
-# =====================================================
-# 8. THEME
-# =====================================================
-
-if st.session_state.theme == "Light":
-    st.markdown("""
-    <style>
-    .stApp {
-        background: #f1f3f8 !important;
-        color: #222 !important;
-    }
-    [data-testid="stChatMessage"] {
-        background: rgba(255,255,255,.95) !important;
-        color: #222 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
-# =====================================================
-# 9. SYSTEM PROMPT
-# =====================================================
-
-if st.session_state.language == "فارسی":
-    language_instruction = "همیشه به فارسی روان پاسخ بده، مگر اینکه کاربر زبان دیگری بخواهد."
-else:
-    language_instruction = "Answer in English unless the user requests another language."
-
-
-SYSTEM_PROMPT = f"""
-تو ور دست (Vardast) هستی.
-
-یک دستیار هوش مصنوعی دقیق، خلاق، مودب و توانمند هستی.
-
-سازنده تو {CREATOR} است.
-
-قوانین:
-- پاسخ دقیق و کاربردی بده.
-- از Markdown استفاده کن.
-- پاسخ را متناسب با سطح کاربر تنظیم کن.
-- اگر کد خواست، کد کامل و قابل اجرا بده.
-- اگر درخواست تصویر کرد، در انتهای پاسخ یک خط با قالب زیر بنویس:
-IMAGE_GEN: English image prompt
-- برای تولید تصویر، پرامپت دقیق و توصیفی بنویس.
-- اطلاعات ساختگی را به عنوان واقعیت معرفی نکن.
-- به فایل‌های ارسالی با دقت توجه کن.
-
-لحن: {st.session_state.tone}
-{language_instruction}
-"""
-
-
-# =====================================================
-# 10. IMAGE GENERATION
-# =====================================================
+    return response.choices[0].message.content or "پاسخی دریافت نشد."
 
 def generate_image(prompt):
-    encoded = urllib.parse.quote(prompt)
-
-    return (
-        "https://image.pollinations.ai/prompt/"
-        + encoded
-        + "?width=1024&height=1024&nologo=true"
+    if not POLLINATIONS_API_KEY:
+        raise RuntimeError("برای ساخت تصویر، متغیر POLLINATIONS_API_KEY هنوز در Render تنظیم نشده است.")
+    # OpenAI-compatible image generation endpoint
+    client = OpenAI(
+        api_key=POLLINATIONS_API_KEY,
+        base_url="https://gen.pollinations.ai/v1"
     )
+    result = client.images.generate(
+        model=IMAGE_MODEL,
+        prompt=prompt,
+        size="1024x1024",
+        response_format="b64_json",
+    )
+    b64 = result.data[0].b64_json
+    if not b64:
+        raise RuntimeError("سرویس تصویر، فایل تصویری برنگرداند.")
+    return base64.b64decode(b64)
 
+def transcribe_audio(audio_file):
+    if groq is None:
+        raise RuntimeError("کلید GROQ_API_KEY تنظیم نشده است.")
+    raw = audio_file.getvalue()
+    file_tuple = (audio_file.name or "voice.wav", raw)
+    result = groq.audio.transcriptions.create(
+        model="whisper-large-v3-turbo",
+        file=file_tuple,
+        response_format="text",
+    )
+    return str(result).strip()
 
-def show_image(prompt):
-    url = generate_image(prompt)
+def make_tts(text, lang):
+    language = "fa" if lang == "فارسی" else "en"
+    audio = io.BytesIO()
+    gTTS(text=text[:3500], lang=language).write_to_fp(audio)
+    audio.seek(0)
+    return audio
 
-    try:
-        response = requests.get(
-            url,
-            timeout=90,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
+# ---- Main layout ----
+if not st.session_state.user:
+    auth_screen()
+    st.stop()
 
-        if response.status_code == 200 and response.content:
-            st.image(
-                response.content,
-                caption="ساخته شده توسط ور دست ⚡",
-                use_container_width=True
-            )
-            return url
-
-        st.error("سرویس تولید تصویر پاسخ نداد.")
-        return None
-
-    except Exception:
-        st.error("ارتباط با سرویس تصویرسازی برقرار نشد.")
-        return None
-
-
-# =====================================================
-# 11. MAIN HEADER
-# =====================================================
-
-st.markdown("""
-<div class="header-box">
-    <div class="brand">ور دست ⚡</div>
-    <p>دستیار هوشمند، رایگان و در دسترس همه</p>
+st.markdown(f"""
+<div class="hero">
+  <h1>✨ ور دست</h1>
+  <p>همراه هوشمند تو؛ از پرسش و یادگیری تا ایده‌پردازی و تصویرسازی</p>
 </div>
 """, unsafe_allow_html=True)
 
-
-# =====================================================
-# 12. QUICK TOOLS
-# =====================================================
-
-st.markdown("### ابزارهای سریع")
-
-q1, q2, q3 = st.columns(3)
-
-with q1:
-    if st.button("🌐 ترجمه", use_container_width=True):
-        st.session_state.pending_prompt = "لطفاً متن زیر را ترجمه کن: "
-
-with q2:
-    if st.button("💻 برنامه نویسی", use_container_width=True):
-        st.session_state.pending_prompt = "در برنامه نویسی به من کمک کن."
-
-with q3:
-    if st.button("💡 ایده خلاقانه", use_container_width=True):
-        st.session_state.pending_prompt = "یک ایده خلاقانه و کاربردی پیشنهاد بده."
-
-
-# =====================================================
-# 13. IMAGE GENERATOR PANEL
-# =====================================================
-
-with st.expander("🎨 استودیوی تولید تصویر", expanded=False):
-
-    image_prompt = st.text_area(
-        "چه تصویری می‌خواهی بسازم؟",
-        placeholder="مثلاً: یک شهر آینده نگر در شب..."
-    )
-
-    if st.button("ساخت تصویر", type="primary"):
-        if image_prompt.strip():
-            with st.spinner("در حال ساخت تصویر..."):
-                url = show_image(image_prompt)
-
-                if url:
-                    save_message(
-                        st.session_state.chat_id,
-                        "assistant",
-                        "IMAGE_RESULT::" + url + "\n" + image_prompt
-                    )
-        else:
-            st.warning("ابتدا توضیح تصویر را بنویس.")
-
-
-# =====================================================
-# 14. VOICE INPUT
-# =====================================================
-
-st.markdown("### 🎙️ ورودی صوتی")
-
-audio_value = st.audio_input("ویس خود را ضبط کن")
-
-if audio_value is not None:
-
-    st.audio(audio_value)
-
-    if st.button("تبدیل ویس به متن"):
-
-        if not client:
-            st.error("کلید API تنظیم نشده است.")
-        else:
-            try:
-                with st.spinner("در حال تبدیل صدا به متن..."):
-
-                    audio_bytes = audio_value.getvalue()
-
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-large-v3-turbo",
-                        file=(
-                            "voice.wav",
-                            audio_bytes,
-                            "audio/wav"
-                        )
-                    )
-
-                    recognized_text = transcript.text
-
-                    st.success("متن شناسایی شده:")
-                    st.write(recognized_text)
-
-                    st.session_state.pending_prompt = recognized_text
-
-            except Exception as e:
-                st.error(f"خطا در تبدیل صدا: {e}")
-
-
-# =====================================================
-# 15. LOAD CHAT HISTORY
-# =====================================================
-
-messages = get_messages(st.session_state.chat_id)
-
-for msg in messages:
-
-    role = msg["role"]
-    content = msg["content"]
-
-    avatar = "👤" if role == "user" else "⚡"
-
-    with st.chat_message(role, avatar=avatar):
-
-        if content.startswith("IMAGE_RESULT::"):
-            parts = content.split("\n", 1)
-            url = parts[0].replace("IMAGE_RESULT::", "")
-            prompt = parts[1] if len(parts) > 1 else ""
-
-            st.caption("تصویر تولید شده")
-            st.image(url, use_container_width=True)
-            st.caption(prompt)
-
-        else:
-            st.markdown(content)
-
-            if role == "assistant":
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    st.button(
-                        "📋",
-                        key=f"copy_{msg['id']}",
-                        help="کپی پاسخ"
-                    )
-
-                with col2:
-                    if st.button(
-                        "👍",
-                        key=f"like_{msg['id']}",
-                        help="پسندیدم"
-                    ):
-                        save_feedback(
-                            st.session_state.user_id,
-                            msg["id"],
-                            "like"
-                        )
-                        st.toast("ممنون از بازخوردت!")
-
-                with col3:
-                    if st.button(
-                        "👎",
-                        key=f"dislike_{msg['id']}",
-                        help="نپسندیدم"
-                    ):
-                        save_feedback(
-                            st.session_state.user_id,
-                            msg["id"],
-                            "dislike"
-                        )
-                        st.toast("بازخوردت ثبت شد.")
-
-                with col4:
-                    if st.button(
-                        "🔊",
-                        key=f"voice_{msg['id']}",
-                        help="خواندن پاسخ"
-                    ):
-                        try:
-                            lang = (
-                                "fa" if st.session_state.language == "فارسی"
-                                else "en"
-                            )
-
-                            speech = gTTS(
-                                text=content[:4000],
-                                lang=lang
-                            )
-
-                            audio_buffer = io.BytesIO()
-                            speech.write_to_fp(audio_buffer)
-                            audio_buffer.seek(0)
-
-                            st.audio(
-                                audio_buffer,
-                                format="audio/mp3"
-                            )
-
-                        except Exception as e:
-                            st.warning(f"خطا در ساخت صدا: {e}")
-
-
-# =====================================================
-# 16. FILE UPLOAD
-# =====================================================
-
-st.divider()
-
-uploaded_files = st.file_uploader(
-    "📎 پیوست فایل (اختیاری)",
-    type=["pdf", "jpg", "jpeg", "png"],
-    accept_multiple_files=True
-)
-
-
-# =====================================================
-# 17. CHAT INPUT
-# =====================================================
-
-default_prompt = st.session_state.pending_prompt
-st.session_state.pending_prompt = ""
-
-user_text = st.text_area(
-    "پیام خود را بنویسید",
-    value=default_prompt,
-    height=110,
-    placeholder="پیام خود را اینجا بنویسید..."
-)
-
-send_button = st.button(
-    "ارسال پیام 🚀",
-    type="primary",
-    use_container_width=True
-)
-
-
-# =====================================================
-# 18. PROCESS USER MESSAGE
-# =====================================================
-
-if send_button:
-
-    if not user_text.strip() and not uploaded_files:
-        st.warning("لطفاً پیام یا فایل ارسال کن.")
-
-    elif not client:
-        st.error("کلید GROQ_API_KEY تنظیم نشده است.")
-
-    else:
-
-        api_content = [
-            {
-                "type": "text",
-                "text": user_text.strip() or "فایل ارسالی را تحلیل کن."
-            }
-        ]
-
-        file_notes = []
-
-        for file in uploaded_files or []:
-
-            if file.type.startswith("image/"):
-
-                image_bytes = file.getvalue()
-
-                encoded_image = base64.b64encode(
-                    image_bytes
-                ).decode("utf-8")
-
-                api_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": (
-                            f"data:{file.type};base64,{encoded_image}"
-                        )
-                    }
-                })
-
-            elif file.type == "application/pdf":
-
-                try:
-                    reader = PyPDF2.PdfReader(
-                        io.BytesIO(file.getvalue())
-                    )
-
-                    extracted = "\n".join(
-                        page.extract_text() or ""
-                        for page in reader.pages
-                    )
-
-                    file_notes.append(
-                        "محتوای PDF:\n" + extracted[:12000]
-                    )
-
-                except Exception as e:
-                    file_notes.append(
-                        f"خطا در خواندن PDF: {e}"
-                    )
-
-        if file_notes:
-            api_content.append({
-                "type": "text",
-                "text": "\n\n".join(file_notes)
-            })
-
-        display_text = user_text.strip()
-
-        if uploaded_files:
-            display_text += (
-                f"\n\n[{len(uploaded_files)} فایل پیوست شد]"
-            )
-
-        save_message(
-            st.session_state.chat_id,
-            "user",
-            display_text
-        )
-
-        history = get_messages(st.session_state.chat_id)
-
-        api_messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            }
-        ]
-
-        # محدود کردن تاریخچه ارسالی برای کنترل حجم درخواست
-        for old_msg in history[:-1][-20:]:
-
-            if old_msg["content"].startswith("IMAGE_RESULT::"):
-                continue
-
-            api_messages.append({
-                "role": old_msg["role"],
-                "content": old_msg["content"]
-            })
-
-        api_messages.append({
-            "role": "user",
-            "content": api_content
-        })
-
-        selected_model = (
-            VISION_MODEL
-            if any(f.type.startswith("image/") for f in uploaded_files or [])
-            else CHAT_MODEL
-        )
-
-        try:
-
-            with st.spinner("ور دست در حال فکر کردن است..."):
-
-                result = client.chat.completions.create(
-                    model=selected_model,
-                    messages=api_messages,
-                    temperature=float(
-                        st.session_state.creativity
-                    ),
-                    max_tokens=2000
-                )
-
-                answer = result.choices[0].message.content or ""
-
-                if "IMAGE_GEN:" in answer:
-
-                    parts = answer.split("IMAGE_GEN:", 1)
-
-                    text_part = parts[0].strip()
-                    prompt = parts[1].strip()
-
-                    if text_part:
-                        save_message(
-                            st.session_state.chat_id,
-                            "assistant",
-                            text_part
-                        )
-
-                    with st.chat_message(
-                        "assistant",
-                        avatar="⚡"
-                    ):
-
-                        if text_part:
-                            st.markdown(text_part)
-
-                        with st.spinner("در حال تولید تصویر..."):
-
-                            url = show_image(prompt)
-
-                            if url:
-                                save_message(
-                                    st.session_state.chat_id,
-                                    "assistant",
-                                    "IMAGE_RESULT::" + url + "\n" + prompt
-                                )
-
-                else:
-
-                    save_message(
-                        st.session_state.chat_id,
-                        "assistant",
-                        answer
-                    )
-
-                    with st.chat_message(
-                        "assistant",
-                        avatar="⚡"
-                    ):
-                        st.markdown(answer)
-
-            st.rerun()
-
-        except Exception as e:
-
-            st.error(f"خطا در ارتباط با هوش مصنوعی: {e}")
-
-
-# =====================================================
-# 19. DOWNLOAD CHAT
-# =====================================================
-
-all_messages = get_messages(st.session_state.chat_id)
-
-if all_messages:
-
-    export_text = ""
-
-    for m in all_messages:
-        role = "شما" if m["role"] == "user" else "ور دست"
-
-        if m["content"].startswith("IMAGE_RESULT::"):
-            export_text += role + ":\n[تصویر تولید شده]\n\n"
-        else:
-            export_text += (
-                role + ":\n" + m["content"] + "\n\n"
-            )
+with st.sidebar:
+    st.markdown("## 🧭 منوی ور دست")
+    st.caption(f"حساب: {getattr(st.session_state.user, 'email', 'کاربر')}")
+    if st.button("＋ گفتگوی جدید", use_container_width=True):
+        new_chat()
+        st.rerun()
+
+    st.markdown("### گفتگوهای قبلی")
+    if not st.session_state.chats:
+        load_chats()
+    for chat in st.session_state.chats:
+        c1, c2 = st.columns([5, 1])
+        with c1:
+            label = (chat.get("title") or "گفتگو")[:26]
+            if st.button(label, key=f"open_{chat['id']}", use_container_width=True):
+                st.session_state.active_chat = chat["id"]
+                load_messages(chat["id"])
+                st.rerun()
+        with c2:
+            if st.button("🗑", key=f"del_{chat['id']}"):
+                st.session_state.confirm_delete = chat["id"]
+    if st.session_state.get("confirm_delete"):
+        st.warning("این گفتگو حذف شود؟")
+        yes, no = st.columns(2)
+        with yes:
+            if st.button("بله، حذف", key="yes_delete"):
+                delete_chat(st.session_state.confirm_delete)
+                st.session_state.confirm_delete = None
+        with no:
+            if st.button("لغو", key="no_delete"):
+                st.session_state.confirm_delete = None
+                st.rerun()
 
     st.divider()
-
-    st.download_button(
-        "📥 دانلود تاریخچه گفتگو",
-        data=export_text,
-        file_name="vardast_chat.txt",
-        mime="text/plain",
-        use_container_width=True
+    st.markdown("### تنظیمات پاسخ")
+    st.session_state.tone = st.selectbox(
+        "لحن پاسخ", ["دوستانه و روشن", "رسمی", "آموزشی و مرحله‌به‌مرحله", "خلاصه و مستقیم"],
+        index=["دوستانه و روشن", "رسمی", "آموزشی و مرحله‌به‌مرحله", "خلاصه و مستقیم"].index(st.session_state.tone)
     )
+    st.session_state.language = st.selectbox("زبان", ["خودکار", "فارسی", "English"])
+    st.divider()
+    if st.button("خروج از حساب", use_container_width=True):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+        for k in ["user", "access_token", "active_chat", "messages", "chats"]:
+            st.session_state[k] = None if k in ["user", "access_token", "active_chat"] else []
+        st.rerun()
+    st.caption(f"سازنده: {CREATOR}")
 
+if not st.session_state.active_chat:
+    if st.session_state.chats:
+        st.info("از ستون کناری یک گفتگو را انتخاب کن یا گفتگوی تازه بساز.")
+    else:
+        st.info("برای شروع، روی «گفتگوی جدید» در ستون کناری بزن.")
+    st.stop()
 
-# =====================================================
-# 20. FOOTER
-# =====================================================
+# Load conversation on first entry if needed
+if st.session_state.active_chat and not st.session_state.messages:
+    load_messages(st.session_state.active_chat)
 
+# Header tools
+left, right = st.columns([3, 1])
+with left:
+    st.subheader("گفتگو با ور دست")
+with right:
+    if st.button("⬇️ دانلود گفتگو", use_container_width=True):
+        transcript = "\n\n".join(
+            [("شما: " if m["role"] == "user" else "ور دست: ") + m["content"] for m in st.session_state.messages]
+        )
+        st.download_button("دریافت فایل متنی", transcript, file_name="vardast_chat.txt", mime="text/plain")
+
+# Display chat
+for i, msg in enumerate(st.session_state.messages):
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg["role"] == "assistant":
+            with st.expander("🔊 شنیدن پاسخ"):
+                tts_lang = st.selectbox("زبان صدا", ["فارسی", "English"], key=f"tts_lang_{i}")
+                if st.button("ساخت صدا", key=f"tts_{i}"):
+                    try:
+                        audio = make_tts(msg["content"], tts_lang)
+                        st.audio(audio, format="audio/mp3")
+                    except Exception as e:
+                        show_error("تبدیل متن به صدا انجام نشد", e)
+
+# File input and voice
+with st.expander("📎 افزودن فایل یا تصویر"):
+    uploaded = st.file_uploader("تصویر یا PDF انتخاب کن", type=["png", "jpg", "jpeg", "webp", "pdf"])
+    if uploaded:
+        st.caption(f"فایل انتخاب‌شده: {uploaded.name}")
+        if uploaded.type.startswith("image/"):
+            st.image(uploaded, caption="تصویر ارسالی", use_container_width=True)
+    audio_input = st.audio_input("🎙️ پیام صوتی ضبط کن")
+
+if audio_input:
+    if st.button("تبدیل صدا به متن"):
+        try:
+            text_result = transcribe_audio(audio_input)
+            st.session_state.pending_prompt = text_result
+            st.success("متن صدا آماده شد؛ می‌توانی آن را ویرایش کنی و بفرستی.")
+            st.text_area("متن تشخیص‌داده‌شده", key="recognized_text", value=text_result)
+        except Exception as e:
+            show_error("تبدیل صدا ناموفق بود", e)
+
+# Image creation panel
+with st.expander("🎨 ساخت تصویر با هوش مصنوعی"):
+    image_prompt = st.text_area("چه تصویری بسازم؟", placeholder="مثلاً: یک شهر آینده‌نگر در غروب، سبک سینمایی...")
+    if st.button("ساخت تصویر", use_container_width=True):
+        if not image_prompt.strip():
+            st.warning("ابتدا توضیح تصویر را بنویس.")
+        else:
+            with st.spinner("در حال ساخت تصویر..."):
+                try:
+                    image_bytes = generate_image(image_prompt.strip())
+                    st.session_state.last_image = image_bytes
+                    st.image(image_bytes, caption="تصویر ساخته‌شده", use_container_width=True)
+                    st.download_button("دانلود تصویر", image_bytes, file_name="vardast_image.png", mime="image/png")
+                except Exception as e:
+                    show_error("ساخت تصویر انجام نشد", e)
+
+if st.session_state.last_image:
+    st.image(st.session_state.last_image, caption="آخرین تصویر ساخته‌شده", use_container_width=True)
+
+# Chat input
+prompt = st.chat_input("پیامت را برای ور دست بنویس...")
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    save_message("user", prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    image_for_ai = uploaded if uploaded and uploaded.type.startswith("image/") else None
+    extra_text = ""
+    if uploaded and uploaded.type == "application/pdf":
+        try:
+            reader = PdfReader(uploaded)
+            extra_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            st.warning(f"خواندن PDF ناموفق بود: {e}")
+
+    with st.chat_message("assistant"):
+        with st.spinner("ور دست در حال فکر کردن است..."):
+            try:
+                answer = ask_ai(prompt, uploaded_image=image_for_ai, extra_text=extra_text)
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+                save_message("assistant", answer)
+            except Exception as e:
+                err = str(e)
+                if "model" in err.lower() and ("not found" in err.lower() or "does not exist" in err.lower()):
+                    st.error("مدل انتخاب‌شده در Groq در دسترس نیست. مقدار GROQ_MODEL و GROQ_VISION_MODEL را در Render بررسی کن.")
+                else:
+                    show_error("پاسخ‌گویی هوش مصنوعی ناموفق بود", e)
+    st.rerun()
+
+st.markdown("---")
 st.markdown(
-    f"""
-    <div style="
-        text-align:center;
-        color:#888;
-        padding:25px;
-        font-size:12px;
-    ">
-        Vardast ⚡ | ساخته شده توسط {CREATOR}
-        <br>
-        Your Smart AI Assistant
-    </div>
-    """,
+    f"<div class='small-muted' style='text-align:center'>ور دست · ساخته‌شده توسط {CREATOR}</div>",
     unsafe_allow_html=True
 )
