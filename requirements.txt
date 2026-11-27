@@ -1,8 +1,6 @@
-
 streamlit>=1.40.0
-openai
-supabase
-PyPDF2
-requests
-gTTS
-Pillow
+openai>=1.50.0
+supabase>=2.10.0
+PyPDF2>=3.0.1
+gTTS>=2.5.4
+requests>=2.32.0
