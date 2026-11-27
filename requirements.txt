@@ -1,6 +1,8 @@
 
-streamlit
+streamlit>=1.40.0
 openai
+supabase
 PyPDF2
 requests
 gTTS
+Pillow
