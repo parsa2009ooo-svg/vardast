@@ -21,8 +21,8 @@ components.html(pwa_html, height=0, width=0)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
-# لینک عکس تخت جمشید از ویکی‌مدیا (مطمئن و در دسترس)
-PERSIPOLIS_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Persepolis_-_Panorama.jpg/1280px-Persepolis_-_Panorama.jpg"
+# لینک عکس تخت جمشید (جایگزین مطمئن)
+PERSIPOLIS_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
 
 st.markdown(f"""
     <style>
@@ -240,9 +240,19 @@ for i, message in enumerate(current_messages):
                 if direction == "rtl": st.markdown(f"<div class='rtl'>{text_part}</div>", unsafe_allow_html=True)
                 else: st.markdown(text_part)
             
+            # تلاش اول با Pollinations
             encoded_prompt = urllib.parse.quote(img_prompt)
             img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-            st.image(img_url, caption=f"Prompt: {img_prompt}")
+            
+            # بررسی اینکه آیا عکس لود شده یا نه
+            try:
+                response = requests.head(img_url, timeout=5)
+                if response.status_code == 200:
+                    st.image(img_url, caption=f"Prompt: {img_prompt}")
+                else:
+                    st.warning("سرویس تصویرسازی شلوغ است. لطفاً دوباره تلاش کنید.")
+            except:
+                st.warning("خطا در برقراری ارتباط با سرویس تصویرسازی.")
             
         else:
             if direction == "rtl": st.markdown(f"<div class='rtl'>{content}</div>", unsafe_allow_html=True)
@@ -265,14 +275,12 @@ for i, message in enumerate(current_messages):
                     if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
-                            # استفاده از سرویس Google Translate TTS برای پخش خودکار
                             url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={urllib.parse.quote(content[:200])}&tl={lang_code}&client=tw-ob"
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             response = requests.get(url, headers=headers)
                             
                             if response.status_code == 200:
                                 audio_buffer = io.BytesIO(response.content)
-                                # پخش خودکار صدا با پارامتر autoplay
                                 st.audio(audio_buffer, format="audio/mp3", autoplay=True)
                             else:
                                 st.warning("⚠️ سرویس صوتی پاسخ نداد.")
