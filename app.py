@@ -17,10 +17,11 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری (دکمه‌های مینیمال دقیقاً مثل چت)
+# ۱. تنظیمات ظاهری (با پس‌زمینه تخت جمشید)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
+# لینک عکس تخت جمشید از ویکی‌مدیا (مطمئن و در دسترس)
 PERSIPOLIS_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Persepolis_-_Panorama.jpg/1280px-Persepolis_-_Panorama.jpg"
 
 st.markdown(f"""
@@ -30,7 +31,7 @@ st.markdown(f"""
     html, body, [class*="css"] {{ font-family: 'Poppins', 'Vazirmatn', sans-serif; }}
     .rtl {{ direction: rtl; text-align: right; }}
     
-    /* پس‌زمینه تخت جمشید */
+    /* پس‌زمینه تخت جمشید (مات و تیره) */
     .stApp {{
         background-image: linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.95)), url("{PERSIPOLIS_IMAGE}");
         background-size: cover;
@@ -56,7 +57,7 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] {{ border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }}
     div.stButton > button[kind="primary"]:hover {{ transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }}
     
-    /* === دکمه‌های مینیمال (دقیقاً مثل دکمه‌های چت) === */
+    /* === دکمه‌های مینیمال (کپی، لایک، دیس‌لایک، بلندگو) === */
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {{
         background: transparent !important;
         border: none !important;
@@ -65,10 +66,9 @@ st.markdown(f"""
         width: 40px !important;
         height: 40px !important;
         font-size: 20px !important;
-        color: #888 !important; /* رنگ خاکستری */
+        color: #888 !important;
         transition: all 0.2s ease !important;
     }}
-    /* هاور کردن: رنگ سفید می‌شه */
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover {{
         color: white !important;
         transform: scale(1.1) !important;
@@ -140,7 +140,7 @@ if "current_chat" not in st.session_state: st.session_state.current_chat = "Chat
 if "input_key_counter" not in st.session_state: st.session_state.input_key_counter = 0
 
 # ==========================================
-# ۵. منوی کناری
+# ۵. منوی کناری (با قابلیت حالت تمرکز)
 # ==========================================
 with st.sidebar:
     selected_lang = st.selectbox("Language / زبان", list(LANGUAGES.keys()))
@@ -249,8 +249,8 @@ for i, message in enumerate(current_messages):
             else: st.markdown(content)
             
             if message["role"] == "assistant":
-                # دکمه‌های مینیمال (دقیقاً مثل دکمه‌های چت)
-                col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 10])
+                # دکمه‌های مینیمال (کپی، لایک، دیس‌لایک، بلندگو)
+                col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 8])
                 with col1:
                     if st.button("📋", key=f"copy_{i}", help="کپی"):
                         components.html(f"<script>navigator.clipboard.writeText(`{content}`);</script>", height=0)
@@ -265,22 +265,19 @@ for i, message in enumerate(current_messages):
                     if st.button("🔊", key=f"tts_{i}", help="خواندن صوتی"):
                         try:
                             lang_code = "fa" if direction == "rtl" else "en"
+                            # استفاده از سرویس Google Translate TTS برای پخش خودکار
                             url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={urllib.parse.quote(content[:200])}&tl={lang_code}&client=tw-ob"
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             response = requests.get(url, headers=headers)
+                            
                             if response.status_code == 200:
                                 audio_buffer = io.BytesIO(response.content)
-                                st.audio(audio_buffer, format="audio/mp3")
+                                # پخش خودکار صدا با پارامتر autoplay
+                                st.audio(audio_buffer, format="audio/mp3", autoplay=True)
                             else:
                                 st.warning("⚠️ سرویس صوتی پاسخ نداد.")
                         except Exception as e:
                             st.warning(f"⚠️ خطا در صدا: {e}")
-                with col5:
-                    if st.button("↗️", key=f"share_{i}", help="اشتراک"):
-                        st.toast("لینک کپی شد! (به زودی)")
-                with col6:
-                    if st.button("🔄", key=f"refresh_{i}", help="تولید مجدد"):
-                        st.toast("در حال تولید مجدد...")
 
 # ==========================================
 # ۹. کادر ورودی و ارسال
