@@ -2,127 +2,202 @@
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
+import sqlite3
+import hashlib
+import secrets
+import json
 import os
 import io
-import json
 import base64
 import urllib.parse
 import requests
 import PyPDF2
 from datetime import datetime
 
-# =====================================================
+# ==================================================
 # 1. PAGE CONFIG
-# =====================================================
+# ==================================================
 
 st.set_page_config(
     page_title="Vardast | ور دست",
     page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
+
+DB_PATH = "vardast.db"
 
 PERSIPOLIS_IMAGE = (
     "https://upload.wikimedia.org/wikipedia/commons/thumb/"
     "6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
 )
 
-# =====================================================
-# 2. PWA
-# =====================================================
+# ==================================================
+# 2. DATABASE
+# ==================================================
 
-pwa_html = """
-<link rel="manifest" href="data:application/manifest+json,
-%7B%22name%22%3A%22Vardast%22%2C%22short_name%22%3A%22Vardast%22%2C
-%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C
-%22background_color%22%3A%22%230e1117%22%2C
-%22theme_color%22%3A%22%230e1117%22%7D">
-"""
-components.html(pwa_html, height=0)
+def get_db():
+    return sqlite3.connect(DB_PATH)
 
-# =====================================================
+def init_db():
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                chats_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+        """)
+
+def hash_password(password, salt):
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt),
+        310000
+    ).hex()
+
+def register_user(username, display_name, password):
+    username = username.strip().lower()
+    display_name = display_name.strip()
+
+    if len(username) < 3:
+        return False, "نام کاربری باید حداقل ۳ حرف باشد."
+
+    if not username.replace("_", "").isalnum():
+        return False, "نام کاربری فقط می‌تواند شامل حروف، عدد و _ باشد."
+
+    if not display_name:
+        return False, "نام نمایشی را وارد کنید."
+
+    if len(password) < 8:
+        return False, "رمز عبور باید حداقل ۸ کاراکتر باشد."
+
+    salt = secrets.token_hex(16)
+    password_hash = hash_password(password, salt)
+
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO users (
+                    username,
+                    display_name,
+                    salt,
+                    password_hash,
+                    chats_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                username,
+                display_name,
+                salt,
+                password_hash,
+                json.dumps({
+                    "chats": {"Chat 1": []},
+                    "current_chat": "Chat 1",
+                    "chat_counter": 1
+                }),
+                datetime.now().isoformat()
+            ))
+
+        return True, "حساب شما با موفقیت ساخته شد."
+
+    except sqlite3.IntegrityError:
+        return False, "این نام کاربری قبلاً ثبت شده است."
+
+def authenticate_user(username, password):
+    with get_db() as conn:
+        user = conn.execute("""
+            SELECT id, username, display_name,
+                   salt, password_hash, chats_json
+            FROM users
+            WHERE username = ?
+        """, (username.strip().lower(),)).fetchone()
+
+    if not user:
+        return None
+
+    calculated = hash_password(password, user[3])
+
+    if not secrets.compare_digest(calculated, user[4]):
+        return None
+
+    try:
+        chat_data = json.loads(user[5])
+    except (ValueError, TypeError):
+        chat_data = {}
+
+    return {
+        "id": user[0],
+        "username": user[1],
+        "display_name": user[2],
+        "chat_data": chat_data
+    }
+
+def save_user_data():
+    if not st.session_state.get("authenticated"):
+        return
+
+    data = {
+        "chats": st.session_state.chats,
+        "current_chat": st.session_state.current_chat,
+        "chat_counter": st.session_state.chat_counter
+    }
+
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE users
+            SET chats_json = ?
+            WHERE id = ?
+        """, (
+            json.dumps(data, ensure_ascii=False),
+            st.session_state.user_id
+        ))
+
+def restore_user_data(user):
+    data = user["chat_data"]
+
+    chats = data.get("chats", {"Chat 1": []})
+
+    if not isinstance(chats, dict) or not chats:
+        chats = {"Chat 1": []}
+
+    st.session_state.chats = chats
+
+    current = data.get("current_chat", next(iter(chats)))
+
+    if current not in chats:
+        current = next(iter(chats))
+
+    st.session_state.current_chat = current
+    st.session_state.chat_counter = data.get("chat_counter", 1)
+
+init_db()
+
+# ==================================================
 # 3. SESSION STATE
-# =====================================================
+# ==================================================
 
 defaults = {
+    "authenticated": False,
     "chats": {"Chat 1": []},
     "current_chat": "Chat 1",
     "chat_counter": 1,
-    "pending_text": None,
-    "pending_files": [],
-    "regen_requested": False,
     "feedback": {},
-    "input_counter": 0,
+    "input_counter": 0
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# =====================================================
-# 4. LANGUAGE
-# =====================================================
-
-LANGUAGES = {
-    "فارسی": {
-        "title": "ور دست ⚡",
-        "caption": "دستیار هوشمند، رایگان و در دسترس همه",
-        "new": "چت جدید",
-        "history": "تاریخچه گفتگوها",
-        "clear": "پاک کردن گفتگو",
-        "search": "جستجو در گفتگوها...",
-        "language": "زبان",
-        "theme": "پوسته",
-        "tone": "لحن پاسخ",
-        "placeholder": "پیام خود را بنویسید...",
-        "send": "ارسال پیام",
-        "upload": "پیوست فایل",
-        "download": "دانلود گفتگو",
-        "welcome": "سلام! من ور دست هستم. چطور می‌توانم کمکت کنم؟",
-        "quick1": "ترجمه متن",
-        "quick2": "آموزش برنامه‌نویسی",
-        "quick3": "ایده‌پردازی خلاقانه",
-        "creator": "ساخته شده توسط سید محمد پارسا حسینی",
-        "rename": "تغییر نام گفتگو",
-        "delete": "حذف گفتگو",
-        "temperature": "میزان خلاقیت",
-        "friendly": "دوستانه",
-        "professional": "حرفه‌ای",
-        "creative": "خلاقانه",
-        "direct": "مستقیم"
-    },
-    "English": {
-        "title": "Vardast ⚡",
-        "caption": "Your smart assistant.",
-        "new": "New Chat",
-        "history": "Chat History",
-        "clear": "Clear Chat",
-        "search": "Search chats...",
-        "language": "Language",
-        "theme": "Theme",
-        "tone": "Response Tone",
-        "placeholder": "Type your message...",
-        "send": "Send Message",
-        "upload": "Attach Files",
-        "download": "Download Chat",
-        "welcome": "Hello! I am Vardast. How can I help you?",
-        "quick1": "Translate text",
-        "quick2": "Learn programming",
-        "quick3": "Creative ideas",
-        "creator": "Made by Seyed Mohammad Parsa Hosseini",
-        "rename": "Rename Chat",
-        "delete": "Delete Chat",
-        "temperature": "Creativity",
-        "friendly": "Friendly",
-        "professional": "Professional",
-        "creative": "Creative",
-        "direct": "Direct"
-    }
-}
-
-# =====================================================
-# 5. API CONFIGURATION
-# =====================================================
+# ==================================================
+# 4. API CONFIG
+# ==================================================
 
 try:
     API_KEY = st.secrets.get("GROQ_API_KEY", "")
@@ -142,13 +217,12 @@ if API_KEY:
         base_url="https://api.groq.com/openai/v1"
     )
 
-# =====================================================
-# 6. CUSTOM CSS
-# =====================================================
+# ==================================================
+# 5. DESIGN
+# ==================================================
 
 st.markdown(f"""
 <style>
-
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Vazirmatn:wght@300;400;500;700&display=swap');
 
 html, body, [class*="css"] {{
@@ -187,10 +261,6 @@ html, body, [class*="css"] {{
     background: rgba(15,18,26,.96);
 }}
 
-[data-testid="stSidebar"] button {{
-    border-radius: 12px !important;
-}}
-
 .stTextArea textarea {{
     border-radius: 16px !important;
     background: rgba(0,0,0,.35) !important;
@@ -205,23 +275,6 @@ div.stButton > button[kind="primary"] {{
     color: white !important;
     border: none !important;
     font-weight: 600 !important;
-    transition: .25s;
-}}
-
-div.stButton > button[kind="primary"]:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(74,144,226,.4);
-}}
-
-/* Response toolbar */
-
-[data-testid="stHorizontalBlock"] button {{
-    transition: .2s ease;
-}}
-
-[data-testid="stHorizontalBlock"] button:hover {{
-    color: #ffffff !important;
-    transform: scale(1.06);
 }}
 
 .rtl {{
@@ -231,62 +284,154 @@ div.stButton > button[kind="primary"]:hover {{
 }}
 
 .brand {{
-    font-size: 13px;
-    color: #888;
     text-align: center;
+    color: #888;
+    font-size: 13px;
 }}
 
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
-# 7. HELPER FUNCTIONS
-# =====================================================
+# ==================================================
+# 6. AUTHENTICATION PAGE
+# ==================================================
 
-def get_current_messages():
+if not st.session_state.authenticated:
+
+    st.markdown(
+        "<h1 style='text-align:center'>ور دست ⚡</h1>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<p style='text-align:center'>"
+        "دستیار هوشمند شما"
+        "</p>",
+        unsafe_allow_html=True
+    )
+
+    tab1, tab2 = st.tabs(["ورود به حساب", "ثبت نام"])
+
+    with tab1:
+
+        with st.form("login_form"):
+
+            username = st.text_input("نام کاربری")
+
+            password = st.text_input(
+                "رمز عبور",
+                type="password"
+            )
+
+            login = st.form_submit_button(
+                "ورود",
+                type="primary",
+                use_container_width=True
+            )
+
+            if login:
+
+                user = authenticate_user(username, password)
+
+                if user:
+
+                    st.session_state.authenticated = True
+                    st.session_state.user_id = user["id"]
+                    st.session_state.username = user["username"]
+                    st.session_state.display_name = user["display_name"]
+
+                    restore_user_data(user)
+
+                    st.rerun()
+
+                else:
+                    st.error("نام کاربری یا رمز عبور اشتباه است.")
+
+    with tab2:
+
+        with st.form("register_form"):
+
+            display_name = st.text_input("نام شما")
+
+            new_username = st.text_input("نام کاربری")
+
+            new_password = st.text_input(
+                "رمز عبور",
+                type="password"
+            )
+
+            confirm_password = st.text_input(
+                "تکرار رمز عبور",
+                type="password"
+            )
+
+            register = st.form_submit_button(
+                "ساخت حساب",
+                type="primary",
+                use_container_width=True
+            )
+
+            if register:
+
+                if new_password != confirm_password:
+
+                    st.error("رمزهای عبور یکسان نیستند.")
+
+                else:
+
+                    success, message = register_user(
+                        new_username,
+                        display_name,
+                        new_password
+                    )
+
+                    if success:
+                        st.success(message)
+                        st.info("حالا از قسمت ورود وارد حساب خود شوید.")
+                    else:
+                        st.error(message)
+
+    st.stop()
+
+# ==================================================
+# 7. CHAT FUNCTIONS
+# ==================================================
+
+def current_messages():
     return st.session_state.chats[
         st.session_state.current_chat
     ]
 
-
 def new_chat():
+
     st.session_state.chat_counter += 1
+
     name = f"Chat {st.session_state.chat_counter}"
 
     st.session_state.chats[name] = []
+
     st.session_state.current_chat = name
+
+    save_user_data()
+
     st.rerun()
 
-
 def export_chat(messages):
-    output = []
 
-    for msg in messages:
-        role = "شما" if msg["role"] == "user" else "ور دست"
-        output.append(
-            f"{role}:\n{msg['content']}\n"
+    result = []
+
+    for message in messages:
+
+        role = "شما" if message["role"] == "user" else "ور دست"
+
+        result.append(
+            f"{role}:\n{message['content']}"
         )
 
-    return "\n--------------------\n".join(output)
-
-
-def safe_copy(text):
-    # Clipboard runs inside the browser.
-    payload = json.dumps(text, ensure_ascii=False)
-
-    html = f"""
-    <script>
-    const text = {payload};
-    navigator.clipboard.writeText(text)
-        .then(() => console.log("Copied"))
-        .catch(() => console.log("Clipboard unavailable"));
-    </script>
-    """
-
-    components.html(html, height=0)
-
+    return "\n\n--------------------\n\n".join(result)
 
 def read_pdf(file):
+
     reader = PyPDF2.PdfReader(
         io.BytesIO(file.getvalue())
     )
@@ -298,15 +443,29 @@ def read_pdf(file):
 
     return "\n".join(pages)
 
+def safe_copy(text):
+
+    payload = json.dumps(text, ensure_ascii=False)
+
+    html = f"""
+    <script>
+    navigator.clipboard.writeText({payload})
+        .then(() => console.log("Copied"))
+        .catch(() => console.log("Copy failed"));
+    </script>
+    """
+
+    components.html(html, height=0)
 
 def speak_text(text, language):
+
     try:
-        short_text = text[:200]
+
         lang = "fa" if language == "فارسی" else "en"
 
         url = (
             "https://translate.google.com/translate_tts?"
-            f"ie=UTF-8&q={urllib.parse.quote(short_text)}"
+            f"ie=UTF-8&q={urllib.parse.quote(text[:200])}"
             f"&tl={lang}&client=tw-ob"
         )
 
@@ -327,36 +486,41 @@ def speak_text(text, language):
     except Exception:
         st.warning("سرویس صوتی در دسترس نیست.")
 
+# ==================================================
+# 8. AI RESPONSE
+# ==================================================
 
-def generate_response(messages, tone, temperature, user_text, files):
+def ask_ai(messages, text, files, tone, temperature):
+
     if not client:
-        st.error("ابتدا GROQ_API_KEY را تنظیم کن.")
+        st.error("کلید GROQ_API_KEY تنظیم نشده است.")
         return None
 
     system_prompt = f"""
-تو ور دست هستی؛ یک دستیار هوش مصنوعی دقیق و کاربردی.
+تو ور دست هستی، یک دستیار هوش مصنوعی دقیق و کاربردی.
 
 قوانین:
-- پاسخ‌ها دقیق، مفید و قابل فهم باشند.
-- از Markdown برای مرتب‌سازی پاسخ استفاده کن.
-- اگر کاربر فارسی صحبت کرد، فارسی روان پاسخ بده.
-- از توضیحات غیرضروری پرهیز کن.
-- در صورت نیاز مثال و مراحل عملی ارائه بده.
+- پاسخ‌ها دقیق و قابل فهم باشند.
+- از Markdown استفاده کن.
+- اگر کاربر فارسی صحبت کرد فارسی پاسخ بده.
+- مثال‌های مفید ارائه بده.
 - لحن پاسخ: {tone}
-- اگر کاربر درخواست ساخت تصویر کرد، در یک خط جداگانه بنویس:
-IMAGE_GEN: [English image prompt]
+- از اطلاعات ساختگی به عنوان واقعیت استفاده نکن.
 """
 
-    if not user_text.strip():
-        user_text = "لطفاً فایل پیوست شده را بررسی کن."
+    if not text.strip():
+        text = "لطفاً فایل پیوست شده را بررسی کن."
 
     api_content = [
-        {"type": "text", "text": user_text}
+        {"type": "text", "text": text}
     ]
 
     for file in files:
+
         try:
+
             if file.type.startswith("image/"):
+
                 encoded = base64.b64encode(
                     file.getvalue()
                 ).decode("utf-8")
@@ -369,27 +533,29 @@ IMAGE_GEN: [English image prompt]
                 })
 
             elif file.type == "application/pdf":
+
                 pdf_text = read_pdf(file)
 
                 api_content.append({
                     "type": "text",
-                    "text": (
-                        "محتوای PDF:\n" +
-                        pdf_text[:12000]
-                    )
+                    "text": "متن PDF:\n" + pdf_text[:12000]
                 })
 
         except Exception as error:
-            st.warning(f"خطا در پردازش {file.name}: {error}")
+            st.warning(f"خطا در فایل {file.name}: {error}")
 
     api_messages = [
-        {"role": "system", "content": system_prompt}
+        {
+            "role": "system",
+            "content": system_prompt
+        }
     ]
 
-    for msg in messages[:-1]:
+    for message in messages[:-1]:
+
         api_messages.append({
-            "role": msg["role"],
-            "content": msg["content"]
+            "role": message["role"],
+            "content": message["content"]
         })
 
     api_messages.append({
@@ -398,6 +564,7 @@ IMAGE_GEN: [English image prompt]
     })
 
     try:
+
         stream = client.chat.completions.create(
             model=MODEL,
             messages=api_messages,
@@ -409,136 +576,142 @@ IMAGE_GEN: [English image prompt]
         return st.write_stream(stream)
 
     except Exception as error:
-        st.error(f"خطا در ارتباط با هوش مصنوعی: {error}")
+
+        st.error(f"خطای اتصال به هوش مصنوعی: {error}")
+
         return None
 
-
-# =====================================================
-# 8. SIDEBAR
-# =====================================================
+# ==================================================
+# 9. SIDEBAR
+# ==================================================
 
 with st.sidebar:
 
-    selected_lang = st.selectbox(
-        "Language / زبان",
-        ["فارسی", "English"]
+    st.success(
+        f"خوش آمدی {st.session_state.display_name}"
     )
 
-    t = LANGUAGES[selected_lang]
+    st.caption(
+        f"حساب: {st.session_state.username}"
+    )
 
     st.divider()
 
     if st.button(
-        t["new"],
+        "چت جدید",
         icon=":material/add_circle:",
-        width="stretch"
+        use_container_width=True
     ):
         new_chat()
 
-    st.subheader(t["history"])
+    st.subheader("تاریخچه")
 
     search_query = st.text_input(
-        "Search",
-        placeholder=t["search"],
-        label_visibility="collapsed"
+        "جستجوی گفتگو",
+        placeholder="نام یا متن گفتگو..."
     )
 
-    # Chat search
+    for name, messages in list(st.session_state.chats.items()):
 
-    for chat_name, chat_messages in list(
-        st.session_state.chats.items()
-    ):
-
-        searchable = chat_name + " " + " ".join(
-            m["content"] for m in chat_messages
+        searchable = name + " " + " ".join(
+            m["content"] for m in messages
         )
 
         if search_query.lower() in searchable.lower():
 
             if st.button(
-                chat_name,
-                key=f"chat_{chat_name}",
-                width="stretch",
+                name,
+                key=f"select_{name}",
                 type=(
                     "primary"
-                    if chat_name == st.session_state.current_chat
+                    if name == st.session_state.current_chat
                     else "secondary"
-                )
+                ),
+                use_container_width=True
             ):
-                st.session_state.current_chat = chat_name
+
+                st.session_state.current_chat = name
                 st.rerun()
 
     st.divider()
 
-    st.subheader("تنظیمات")
+    language = st.selectbox(
+        "زبان",
+        ["فارسی", "English"]
+    )
 
     theme = st.radio(
-        t["theme"],
+        "تم",
         ["Dark", "Light"],
         horizontal=True
     )
 
-    tone_labels = [
-        t["friendly"],
-        t["professional"],
-        t["creative"],
-        t["direct"]
-    ]
-
     tone = st.selectbox(
-        t["tone"],
-        tone_labels
+        "لحن پاسخ",
+        ["دوستانه", "حرفه‌ای", "خلاقانه", "مستقیم"]
     )
 
     temperature = st.slider(
-        t["temperature"],
-        min_value=0.0,
-        max_value=1.5,
-        value=0.7,
-        step=0.1
+        "میزان خلاقیت",
+        0.0,
+        1.5,
+        0.7,
+        0.1
     )
-
-    # Chat management
 
     st.divider()
 
     st.subheader("مدیریت گفتگو")
 
-    rename_value = st.text_input(
-        t["rename"],
-        placeholder="نام جدید..."
+    rename = st.text_input(
+        "نام جدید گفتگو"
     )
 
-    if st.button("ذخیره نام", icon=":material/edit:"):
-        if rename_value.strip():
-            old_name = st.session_state.current_chat
-            new_name = rename_value.strip()
+    if st.button(
+        "تغییر نام",
+        icon=":material/edit:"
+    ):
 
-            if new_name not in st.session_state.chats:
-                st.session_state.chats[new_name] = (
-                    st.session_state.chats.pop(old_name)
+        if rename.strip():
+
+            old = st.session_state.current_chat
+            new = rename.strip()
+
+            if new not in st.session_state.chats:
+
+                st.session_state.chats[new] = (
+                    st.session_state.chats.pop(old)
                 )
-                st.session_state.current_chat = new_name
+
+                st.session_state.current_chat = new
+
+                save_user_data()
                 st.rerun()
+
             else:
-                st.warning("این نام قبلاً استفاده شده است.")
+                st.warning("این نام قبلاً وجود دارد.")
 
     if st.button(
-        t["clear"],
+        "پاک کردن گفتگو",
         icon=":material/delete_sweep:",
-        width="stretch"
+        use_container_width=True
     ):
+
         st.session_state.chats[
             st.session_state.current_chat
         ] = []
+
+        save_user_data()
         st.rerun()
 
     if len(st.session_state.chats) > 1:
+
         if st.button(
-            t["delete"],
+            "حذف کامل این گفتگو",
             icon=":material/delete:",
-            width="stretch"
+            use_container_width=True
         ):
+
             del st.session_state.chats[
                 st.session_state.current_chat
             ]
@@ -546,129 +719,131 @@ with st.sidebar:
             st.session_state.current_chat = next(
                 iter(st.session_state.chats)
             )
+
+            save_user_data()
             st.rerun()
 
-    # Export
-
-    messages = get_current_messages()
+    messages = current_messages()
 
     if messages:
+
         st.download_button(
-            t["download"],
+            "دانلود تاریخچه",
             data=export_chat(messages),
             file_name="vardast_chat.txt",
             mime="text/plain",
             icon=":material/download:",
-            width="stretch"
-        )
-
-        st.download_button(
-            "دانلود Markdown",
-            data=export_chat(messages),
-            file_name="vardast_chat.md",
-            mime="text/markdown",
-            icon=":material/description:",
-            width="stretch"
+            use_container_width=True
         )
 
     st.divider()
 
-    st.markdown(
-        f"<div class='brand'>{t['creator']}</div>",
-        unsafe_allow_html=True
-    )
+    if st.button(
+        "خروج از حساب",
+        icon=":material/logout:",
+        use_container_width=True
+    ):
 
-# =====================================================
-# 9. THEME
-# =====================================================
+        save_user_data()
+
+        for key in [
+            "authenticated",
+            "user_id",
+            "username",
+            "display_name",
+            "chats",
+            "current_chat",
+            "chat_counter"
+        ]:
+            st.session_state.pop(key, None)
+
+        st.rerun()
+
+# ==================================================
+# 10. THEME
+# ==================================================
 
 if theme == "Light":
+
     st.markdown("""
     <style>
     .stApp {
         background-image:
         linear-gradient(
-            rgba(248,249,250,.91),
+            rgba(248,249,250,.92),
             rgba(248,249,250,.97)
         ) !important;
         color: #222 !important;
     }
 
     [data-testid="stChatMessage"] {
-        background: rgba(255,255,255,.88) !important;
+        background: rgba(255,255,255,.9) !important;
         color: #222 !important;
     }
-
     </style>
     """, unsafe_allow_html=True)
 
-# =====================================================
-# 10. HEADER
-# =====================================================
+# ==================================================
+# 11. HEADER
+# ==================================================
 
 st.markdown(
     '<div class="header-style">',
     unsafe_allow_html=True
 )
 
-st.title(t["title"])
-st.caption(t["caption"])
+st.title("ور دست ⚡")
+st.caption("دستیار هوشمند، رایگان و در دسترس همه")
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown(
+    '</div>',
+    unsafe_allow_html=True
+)
 
-# =====================================================
-# 11. QUICK PROMPTS
-# =====================================================
+# ==================================================
+# 12. QUICK PROMPTS
+# ==================================================
 
-messages = get_current_messages()
+messages = current_messages()
 
 if not messages:
 
     with st.chat_message("assistant", avatar="⚡"):
-        st.markdown(t["welcome"])
+
+        st.markdown(
+            "سلام! من ور دست هستم. چطور می‌توانم کمکت کنم؟"
+        )
 
     q1, q2, q3 = st.columns(3)
 
     if q1.button(
-        t["quick1"],
+        "ترجمه",
         icon=":material/translate:",
-        width="stretch"
+        use_container_width=True
     ):
-        st.session_state.quick_prompt = (
-            "این متن را به انگلیسی ترجمه کن: "
-        )
-        st.rerun()
+        st.session_state.quick_prompt = "این متن را به انگلیسی ترجمه کن:"
 
     if q2.button(
-        t["quick2"],
+        "برنامه‌نویسی",
         icon=":material/code:",
-        width="stretch"
+        use_container_width=True
     ):
-        st.session_state.quick_prompt = (
-            "به من برنامه‌نویسی را آموزش بده."
-        )
-        st.rerun()
+        st.session_state.quick_prompt = "به من برنامه‌نویسی آموزش بده."
 
     if q3.button(
-        t["quick3"],
+        "ایده خلاقانه",
         icon=":material/lightbulb:",
-        width="stretch"
+        use_container_width=True
     ):
-        st.session_state.quick_prompt = (
-            "چند ایده خلاقانه و کاربردی پیشنهاد بده."
-        )
-        st.rerun()
+        st.session_state.quick_prompt = "چند ایده خلاقانه پیشنهاد بده."
 
-# =====================================================
-# 12. CHAT DISPLAY
-# =====================================================
+# ==================================================
+# 13. DISPLAY CHAT
+# ==================================================
 
 for i, message in enumerate(messages):
 
-    avatar = (
-        "👤" if message["role"] == "user"
-        else "⚡"
-    )
+    avatar = "👤" if message["role"] == "user" else "⚡"
 
     with st.chat_message(
         message["role"],
@@ -676,8 +851,6 @@ for i, message in enumerate(messages):
     ):
 
         content = message["content"]
-
-        # Image generation
 
         if (
             message["role"] == "assistant"
@@ -698,102 +871,99 @@ for i, message in enumerate(messages):
                 + "?width=1024&height=1024&nologo=true"
             )
 
-            try:
-                st.image(
-                    image_url,
-                    caption="Vardast Image Generator"
-                )
-            except Exception:
-                st.warning("تصویر در دسترس نیست.")
+            st.image(
+                image_url,
+                caption="Vardast Image Generator"
+            )
 
         else:
-
             st.markdown(content)
-
-        # User feedback toolbar
 
         if message["role"] == "assistant":
 
-            st.caption(" ")
-
-            c1, c2, c3, c4, c5, c6 = st.columns(
-                [1, 1, 1, 1, 1, 1]
-            )
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
 
             with c1:
+
                 if st.button(
-                    "کپی",
+                    " ",
                     icon=":material/content_copy:",
                     key=f"copy_{i}",
-                    help="کپی پاسخ",
-                    type="tertiary"
+                    help="کپی"
                 ):
                     safe_copy(content)
                     st.toast("درخواست کپی ارسال شد.")
 
             with c2:
+
                 if st.button(
-                    "پسندیدم",
+                    " ",
                     icon=":material/thumb_up:",
                     key=f"like_{i}",
-                    help="پسندیدن پاسخ",
-                    type="tertiary"
+                    help="پسندیدن"
                 ):
-                    st.session_state.feedback[i] = "like"
+                    st.session_state.feedback[
+                        f"{st.session_state.current_chat}_{i}"
+                    ] = "like"
+
                     st.toast("ممنون از بازخوردت!")
 
             with c3:
+
                 if st.button(
-                    "نپسندیدم",
+                    " ",
                     icon=":material/thumb_down:",
                     key=f"dislike_{i}",
-                    help="نپسندیدن پاسخ",
-                    type="tertiary"
+                    help="نپسندیدن"
                 ):
-                    st.session_state.feedback[i] = "dislike"
+                    st.session_state.feedback[
+                        f"{st.session_state.current_chat}_{i}"
+                    ] = "dislike"
+
                     st.toast("بازخورد ثبت شد.")
 
             with c4:
+
                 if st.button(
-                    "صوت",
+                    " ",
                     icon=":material/volume_up:",
                     key=f"audio_{i}",
-                    help="خواندن پاسخ",
-                    type="tertiary"
+                    help="خواندن صوتی"
                 ):
-                    speak_text(content, selected_lang)
+                    speak_text(content, language)
 
             with c5:
+
                 if st.button(
-                    "اشتراک",
+                    " ",
                     icon=":material/share:",
                     key=f"share_{i}",
-                    help="کپی برای اشتراک‌گذاری",
-                    type="tertiary"
+                    help="اشتراک گذاری"
                 ):
                     safe_copy(content)
-                    st.toast("متن برای اشتراک‌گذاری آماده شد.")
+                    st.toast("متن برای اشتراک‌گذاری کپی شد.")
 
             with c6:
+
                 with st.popover(
-                    "بیشتر",
+                    " ",
                     icon=":material/more_vert:"
                 ):
+
                     st.download_button(
-                        "دانلود این پاسخ",
+                        "دانلود پاسخ",
                         data=content,
                         file_name=f"vardast_answer_{i}.txt",
-                        mime="text/plain",
-                        width="stretch"
+                        mime="text/plain"
                     )
 
-                    if st.button(
-                        "تولید مجدد پاسخ",
-                        icon=":material/refresh:",
-                        key=f"regen_{i}",
-                        width="stretch"
-                    ):
-                        if i == len(messages) - 1:
+                    if i == len(messages) - 1:
+
+                        if st.button(
+                            "تولید مجدد پاسخ",
+                            icon=":material/refresh:"
+                        ):
+
                             last_user = next(
                                 (
                                     m["content"]
@@ -804,150 +974,125 @@ for i, message in enumerate(messages):
                             )
 
                             if last_user:
-                                st.session_state.chats[
-                                    st.session_state.current_chat
-                                ].pop()
 
-                                st.session_state.pending_text = last_user
-                                st.session_state.pending_files = []
+                                messages.pop()
+                                save_user_data()
+
+                                st.session_state.quick_prompt = last_user
                                 st.rerun()
-                        else:
-                            st.warning(
-                                "برای تولید مجدد، آخرین پاسخ را انتخاب کن."
-                            )
 
-            if i in st.session_state.feedback:
-                st.caption(
-                    "بازخورد شما ثبت شده است."
-                )
-
-# =====================================================
-# 13. FILE UPLOAD
-# =====================================================
+# ==================================================
+# 14. FILE UPLOAD
+# ==================================================
 
 st.divider()
 
 with st.expander(
-    t["upload"],
+    "پیوست فایل",
     icon=":material/attach_file:"
 ):
 
     uploaded_files = st.file_uploader(
-        "انتخاب فایل",
+        "تصویر یا PDF انتخاب کن",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True
     )
 
     if uploaded_files:
+
         st.success(
-            f"{len(uploaded_files)} فایل انتخاب شده است."
+            f"{len(uploaded_files)} فایل انتخاب شد."
         )
 
         for file in uploaded_files:
-            st.caption(
-                f"{file.name} - {file.size / 1024:.1f} KB"
-            )
+            st.caption(file.name)
 
-# =====================================================
-# 14. INPUT
-# =====================================================
+# ==================================================
+# 15. MESSAGE INPUT
+# ==================================================
 
-default_value = st.session_state.pop(
+quick_text = st.session_state.pop(
     "quick_prompt",
     ""
 )
 
-input_key = f"message_{st.session_state.input_counter}"
+input_key = f"input_{st.session_state.input_counter}"
 
 user_text = st.text_area(
-    t["placeholder"],
-    value=default_value,
+    "پیام",
+    value=quick_text,
     height=100,
+    placeholder="پیام خود را بنویسید...",
     key=input_key,
     label_visibility="collapsed"
 )
 
-send_clicked = st.button(
-    t["send"],
-    type="primary",
+send = st.button(
+    "ارسال پیام",
     icon=":material/send:",
-    width="stretch"
+    type="primary",
+    use_container_width=True
 )
 
-if send_clicked:
+if send:
 
     if user_text.strip() or uploaded_files:
 
-        st.session_state.pending_text = user_text
-        st.session_state.pending_files = (
-            uploaded_files if uploaded_files else []
-        )
+        # Save user message first
 
-        st.session_state.input_counter += 1
-        st.rerun()
+        display_text = user_text.strip()
 
-# =====================================================
-# 15. PROCESS MESSAGE
-# =====================================================
-
-if st.session_state.pending_text is not None:
-
-    text_to_process = st.session_state.pending_text
-
-    files_to_process = st.session_state.pending_files
-
-    st.session_state.pending_text = None
-    st.session_state.pending_files = []
-
-    current_messages = get_current_messages()
-
-    display_text = text_to_process
-
-    if files_to_process:
-        display_text += (
-            f"\n\n[{len(files_to_process)} فایل پیوست شده]"
-        )
-
-    current_messages.append({
-        "role": "user",
-        "content": display_text
-    })
-
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(display_text)
-
-    tone_map = {
-        t["friendly"]: "دوستانه",
-        t["professional"]: "حرفه‌ای",
-        t["creative"]: "خلاقانه",
-        t["direct"]: "مستقیم"
-    }
-
-    selected_tone = tone_map[tone]
-
-    with st.chat_message("assistant", avatar="⚡"):
-
-        with st.spinner("ور دست در حال فکر کردن است..."):
-
-            answer = generate_response(
-                current_messages,
-                selected_tone,
-                temperature,
-                text_to_process,
-                files_to_process
+        if uploaded_files:
+            display_text += (
+                f"\n[{len(uploaded_files)} فایل پیوست شد]"
             )
 
-        if answer:
-            current_messages.append({
-                "role": "assistant",
-                "content": answer
-            })
+        messages = current_messages()
 
-    st.rerun()
+        messages.append({
+            "role": "user",
+            "content": display_text
+        })
 
-# =====================================================
+        save_user_data()
+
+        st.session_state.input_counter += 1
+
+        # Show user message
+
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(display_text)
+
+        # Generate AI response
+
+        with st.chat_message("assistant", avatar="⚡"):
+
+            with st.spinner("ور دست در حال فکر کردن است..."):
+
+                answer = ask_ai(
+                    messages,
+                    user_text,
+                    uploaded_files if uploaded_files else [],
+                    tone,
+                    temperature
+                )
+
+            if answer:
+
+                messages.append({
+                    "role": "assistant",
+                    "content": answer
+                })
+
+                # Save assistant answer immediately
+
+                save_user_data()
+
+        st.rerun()
+
+# ==================================================
 # 16. FOOTER
-# =====================================================
+# ==================================================
 
 st.divider()
 
