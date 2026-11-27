@@ -17,11 +17,11 @@ pwa_html = """
 components.html(pwa_html, height=0, width=0)
 
 # ==========================================
-# ۱. تنظیمات ظاهری (با پس‌زمینه تخت جمشید)
+# ۱. تنظیمات ظاهری (دکمه‌های مینیمال دقیقاً مثل چت)
 # ==========================================
 st.set_page_config(page_title="Vardast | ور دست", page_icon="⚡", layout="wide")
 
-PERSIPOLIS_IMAGE = "https://images.unsplash.com/photo-1590076214221-87678f4f8b14?q=80&w=2070&auto=format&fit=crop"
+PERSIPOLIS_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Persepolis_-_Panorama.jpg/1280px-Persepolis_-_Panorama.jpg"
 
 st.markdown(f"""
     <style>
@@ -56,27 +56,22 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] {{ border-radius: 50px !important; background: linear-gradient(90deg, #4A90E2, #8E44AD) !important; color: white !important; border: none !important; padding: 10px 30px !important; font-weight: 600 !important; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4) !important; transition: all 0.3s ease !important; }}
     div.stButton > button[kind="primary"]:hover {{ transform: scale(1.02) !important; box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6) !important; }}
     
-    /* === دکمه‌های آیکونی در یک ردیف === */
+    /* === دکمه‌های مینیمال (دقیقاً مثل دکمه‌های چت) === */
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {{
-        background: rgba(255, 255, 255, 0.08) !important;
-        backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 50% !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
         width: 40px !important;
         height: 40px !important;
-        padding: 0 !important;
-        font-size: 18px !important;
-        color: #ccc !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
+        font-size: 20px !important;
+        color: #888 !important; /* رنگ خاکستری */
         transition: all 0.2s ease !important;
-        margin: 0 auto !important;
     }}
+    /* هاور کردن: رنگ سفید می‌شه */
     div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button:hover {{
-        background: rgba(255, 255, 255, 0.2) !important;
         color: white !important;
-        transform: translateY(-2px) !important;
+        transform: scale(1.1) !important;
     }}
     
     /* انیمیشن سه نقطه */
@@ -103,8 +98,8 @@ LANGUAGES = {
         "welcome": "👋 Hello! I am **Vardast**. How can I help you today?",
         "quick_1": "📝 Translate to English", "quick_2": "💡 Explain quantum physics",
         "quick_3": "🎨 Generate a cyberpunk image", "download_chat": "📥 Download Chat",
-        "system_prompt": """You are 'Vardast', a highly intelligent and precise AI. 
-        Provide detailed, accurate, and well-structured answers using Markdown.
+        "system_prompt": """You are 'Vardast', a highly intelligent AI. 
+        Provide detailed, accurate answers using Markdown.
         If asked to generate an image, you MUST reply with EXACTLY this format on a new line: 'IMAGE_GEN: [English prompt]'. Do not add any other text before or after it.
         Tone: {tone}.""",
         "creator": "Made with ❤️ by Seyed Mohammad Parsa Hosseini"
@@ -221,7 +216,6 @@ if len(current_messages) == 0:
     
     st.write("")
     c1, c2, c3 = st.columns(3)
-    # دکمه‌های پیشنهاد سریع (بهبود یافته)
     if c1.button(t["quick_1"], use_container_width=True): 
         st.session_state.quick_prompt = "Translate this text to English: "
         st.rerun()
@@ -255,8 +249,8 @@ for i, message in enumerate(current_messages):
             else: st.markdown(content)
             
             if message["role"] == "assistant":
-                # دکمه‌های آیکونی (در یک ردیف)
-                col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
+                # دکمه‌های مینیمال (دقیقاً مثل دکمه‌های چت)
+                col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 10])
                 with col1:
                     if st.button("📋", key=f"copy_{i}", help="کپی"):
                         components.html(f"<script>navigator.clipboard.writeText(`{content}`);</script>", height=0)
@@ -284,6 +278,9 @@ for i, message in enumerate(current_messages):
                 with col5:
                     if st.button("↗️", key=f"share_{i}", help="اشتراک"):
                         st.toast("لینک کپی شد! (به زودی)")
+                with col6:
+                    if st.button("🔄", key=f"refresh_{i}", help="تولید مجدد"):
+                        st.toast("در حال تولید مجدد...")
 
 # ==========================================
 # ۹. کادر ورودی و ارسال
