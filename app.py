@@ -2,1104 +2,1066 @@
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
+from gtts import gTTS
+import os
+import io
+import json
+import base64
 import sqlite3
 import hashlib
 import secrets
-import json
-import os
-import io
-import base64
 import urllib.parse
 import requests
 import PyPDF2
 from datetime import datetime
 
-# ==================================================
+# =====================================================
 # 1. PAGE CONFIG
-# ==================================================
+# =====================================================
 
 st.set_page_config(
     page_title="Vardast | ور دست",
     page_icon="⚡",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-DB_PATH = "vardast.db"
+APP_NAME = "ور دست"
+CREATOR = "سید محمد پارسا حسینی"
 
-PERSIPOLIS_IMAGE = (
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/"
-    "6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
-)
+# =====================================================
+# 2. DATABASE - PERMANENT USER DATA
+# =====================================================
 
-# ==================================================
-# 2. DATABASE
-# ==================================================
+if os.path.isdir("/var/data"):
+    DB_PATH = os.getenv("DB_PATH", "/var/data/vardast.db")
+else:
+    DB_PATH = os.getenv("DB_PATH", "vardast.db")
 
-def get_db():
-    return sqlite3.connect(DB_PATH)
+
+def db():
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
 
 def init_db():
-    with get_db() as conn:
+    with db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                display_name TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                chats_json TEXT NOT NULL DEFAULT '{}',
+                password TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
         """)
 
-def hash_password(password, salt):
-    return hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        bytes.fromhex(salt),
-        310000
-    ).hex()
-
-def register_user(username, display_name, password):
-    username = username.strip().lower()
-    display_name = display_name.strip()
-
-    if len(username) < 3:
-        return False, "نام کاربری باید حداقل ۳ حرف باشد."
-
-    if not username.replace("_", "").isalnum():
-        return False, "نام کاربری فقط می‌تواند شامل حروف، عدد و _ باشد."
-
-    if not display_name:
-        return False, "نام نمایشی را وارد کنید."
-
-    if len(password) < 8:
-        return False, "رمز عبور باید حداقل ۸ کاراکتر باشد."
-
-    salt = secrets.token_hex(16)
-    password_hash = hash_password(password, salt)
-
-    try:
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO users (
-                    username,
-                    display_name,
-                    salt,
-                    password_hash,
-                    chats_json,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                username,
-                display_name,
-                salt,
-                password_hash,
-                json.dumps({
-                    "chats": {"Chat 1": []},
-                    "current_chat": "Chat 1",
-                    "chat_counter": 1
-                }),
-                datetime.now().isoformat()
-            ))
-
-        return True, "حساب شما با موفقیت ساخته شد."
-
-    except sqlite3.IntegrityError:
-        return False, "این نام کاربری قبلاً ثبت شده است."
-
-def authenticate_user(username, password):
-    with get_db() as conn:
-        user = conn.execute("""
-            SELECT id, username, display_name,
-                   salt, password_hash, chats_json
-            FROM users
-            WHERE username = ?
-        """, (username.strip().lower(),)).fetchone()
-
-    if not user:
-        return None
-
-    calculated = hash_password(password, user[3])
-
-    if not secrets.compare_digest(calculated, user[4]):
-        return None
-
-    try:
-        chat_data = json.loads(user[5])
-    except (ValueError, TypeError):
-        chat_data = {}
-
-    return {
-        "id": user[0],
-        "username": user[1],
-        "display_name": user[2],
-        "chat_data": chat_data
-    }
-
-def save_user_data():
-    if not st.session_state.get("authenticated"):
-        return
-
-    data = {
-        "chats": st.session_state.chats,
-        "current_chat": st.session_state.current_chat,
-        "chat_counter": st.session_state.chat_counter
-    }
-
-    with get_db() as conn:
         conn.execute("""
-            UPDATE users
-            SET chats_json = ?
-            WHERE id = ?
-        """, (
-            json.dumps(data, ensure_ascii=False),
-            st.session_state.user_id
-        ))
+            CREATE TABLE IF NOT EXISTS chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+                ON DELETE CASCADE
+            )
+        """)
 
-def restore_user_data(user):
-    data = user["chat_data"]
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(chat_id) REFERENCES chats(id)
+                ON DELETE CASCADE
+            )
+        """)
 
-    chats = data.get("chats", {"Chat 1": []})
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                reaction TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(message_id) REFERENCES messages(id)
+            )
+        """)
 
-    if not isinstance(chats, dict) or not chats:
-        chats = {"Chat 1": []}
-
-    st.session_state.chats = chats
-
-    current = data.get("current_chat", next(iter(chats)))
-
-    if current not in chats:
-        current = next(iter(chats))
-
-    st.session_state.current_chat = current
-    st.session_state.chat_counter = data.get("chat_counter", 1)
 
 init_db()
 
-# ==================================================
-# 3. SESSION STATE
-# ==================================================
+
+def now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        200000
+    ).hex()
+    return salt + "$" + hashed
+
+
+def verify_password(password, stored):
+    try:
+        salt, old_hash = stored.split("$")
+        return secrets.compare_digest(
+            hash_password(password, salt).split("$")[1],
+            old_hash
+        )
+    except Exception:
+        return False
+
+
+def create_user(username, password):
+    try:
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO users(username,password,created_at) VALUES(?,?,?)",
+                (username, hash_password(password), now())
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def login_user(username, password):
+    with db() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username=?",
+            (username,)
+        ).fetchone()
+
+    if user and verify_password(password, user["password"]):
+        return user["id"]
+
+    return None
+
+
+def get_chats(user_id):
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM chats WHERE user_id=? ORDER BY id DESC",
+            (user_id,)
+        ).fetchall()
+
+
+def create_chat(user_id, title="گفتگوی جدید"):
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO chats(user_id,title,created_at) VALUES(?,?,?)",
+            (user_id, title, now())
+        )
+        return cur.lastrowid
+
+
+def rename_chat(chat_id, user_id, title):
+    with db() as conn:
+        conn.execute(
+            "UPDATE chats SET title=? WHERE id=? AND user_id=?",
+            (title, chat_id, user_id)
+        )
+
+
+def delete_chat(chat_id, user_id):
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM chats WHERE id=? AND user_id=?",
+            (chat_id, user_id)
+        )
+
+
+def get_messages(chat_id):
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM messages WHERE chat_id=? ORDER BY id",
+            (chat_id,)
+        ).fetchall()
+
+
+def save_message(chat_id, role, content):
+    with db() as conn:
+        cur = conn.execute(
+            """INSERT INTO messages(chat_id,role,content,created_at)
+               VALUES(?,?,?,?)""",
+            (chat_id, role, content, now())
+        )
+        return cur.lastrowid
+
+
+def save_feedback(user_id, message_id, reaction):
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO feedback(user_id,message_id,reaction)
+               VALUES(?,?,?)""",
+            (user_id, message_id, reaction)
+        )
+
+
+# =====================================================
+# 3. API CONFIGURATION
+# =====================================================
+
+try:
+    API_KEY = st.secrets["GROQ_API_KEY"]
+except Exception:
+    API_KEY = os.getenv("GROQ_API_KEY")
+
+client = None
+
+if API_KEY:
+    client = OpenAI(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=API_KEY
+    )
+
+CHAT_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
+)
+
+VISION_MODEL = os.getenv(
+    "GROQ_VISION_MODEL",
+    "meta-llama/llama-4-scout-17b-16e-instruct"
+)
+
+# =====================================================
+# 4. SESSION STATE
+# =====================================================
 
 defaults = {
-    "authenticated": False,
-    "chats": {"Chat 1": []},
-    "current_chat": "Chat 1",
-    "chat_counter": 1,
-    "feedback": {},
-    "input_counter": 0
+    "user_id": None,
+    "username": None,
+    "chat_id": None,
+    "theme": "Dark",
+    "language": "فارسی",
+    "tone": "دوستانه",
+    "creativity": 1.5,
+    "pending_prompt": "",
+    "show_register": False
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# ==================================================
-# 4. API CONFIG
-# ==================================================
 
-try:
-    API_KEY = st.secrets.get("GROQ_API_KEY", "")
-except Exception:
-    API_KEY = os.environ.get("GROQ_API_KEY", "")
+# =====================================================
+# 5. CSS / DESIGN
+# =====================================================
 
-MODEL = os.environ.get(
-    "GROQ_MODEL",
-    "qwen/qwen3.8-27b"
+PERSIPOLIS_IMAGE = (
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/"
+    "6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
 )
-
-client = None
-
-if API_KEY:
-    client = OpenAI(
-        api_key=API_KEY,
-        base_url="https://api.groq.com/openai/v1"
-    )
-
-# ==================================================
-# 5. DESIGN
-# ==================================================
 
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Vazirmatn:wght@300;400;500;700&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
 
 html, body, [class*="css"] {{
-    font-family: 'Poppins', 'Vazirmatn', sans-serif;
+    font-family: 'Vazirmatn', sans-serif;
 }}
 
 .stApp {{
-    background-image:
-    linear-gradient(rgba(14,17,23,.86), rgba(14,17,23,.96)),
+    background:
+    linear-gradient(rgba(10,12,19,.91),rgba(10,12,19,.97)),
     url("{PERSIPOLIS_IMAGE}");
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
 }}
 
-.header-style {{
-    background: rgba(30,35,47,.72);
-    backdrop-filter: blur(18px);
-    padding: 25px;
-    border-radius: 22px;
-    margin-bottom: 25px;
-    border: 1px solid rgba(255,255,255,.1);
-    box-shadow: 0 8px 32px rgba(0,0,0,.3);
+[data-testid="stSidebar"] {{
+    background: rgba(13,16,25,.96);
+    border-right: 1px solid rgba(255,255,255,.08);
 }}
 
 [data-testid="stChatMessage"] {{
-    background: rgba(30,35,47,.65) !important;
-    backdrop-filter: blur(18px);
-    border-radius: 18px;
+    background: rgba(28,32,45,.83);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 20px;
     padding: 18px;
-    margin-bottom: 14px;
-    border: 1px solid rgba(255,255,255,.08);
+    margin-bottom: 15px;
 }}
 
-[data-testid="stSidebar"] {{
-    background: rgba(15,18,26,.96);
-}}
-
-.stTextArea textarea {{
-    border-radius: 16px !important;
-    background: rgba(0,0,0,.35) !important;
+.stTextArea textarea, .stTextInput input {{
+    border-radius: 15px !important;
+    background: rgba(25,25,29,.9) !important;
     color: white !important;
-    border: 1px solid rgba(255,255,255,.15) !important;
-    font-size: 16px !important;
+}}
+
+.stButton button, .stDownloadButton button {{
+    border-radius: 13px;
+    transition: .2s;
+}}
+
+.stButton button:hover {{
+    border-color: #8e44ad;
+    transform: translateY(-2px);
 }}
 
 div.stButton > button[kind="primary"] {{
-    border-radius: 40px !important;
-    background: linear-gradient(90deg,#4A90E2,#8E44AD) !important;
-    color: white !important;
-    border: none !important;
-    font-weight: 600 !important;
+    background: linear-gradient(90deg,#4A90E2,#8E44AD);
+    color: white;
+    border: none;
+    border-radius: 30px;
+    font-weight: bold;
+}}
+
+.header-box {{
+    background: rgba(35,39,55,.78);
+    border: 1px solid rgba(255,255,255,.12);
+    padding: 22px;
+    border-radius: 22px;
+    text-align: center;
+    margin-bottom: 25px;
+}}
+
+.brand {{
+    font-size: 38px;
+    font-weight: 700;
+}}
+
+.muted {{
+    color: #aaa;
+    font-size: 13px;
 }}
 
 .rtl {{
     direction: rtl;
     text-align: right;
-    line-height: 2;
-}}
-
-.brand {{
-    text-align: center;
-    color: #888;
-    font-size: 13px;
 }}
 
 </style>
 """, unsafe_allow_html=True)
 
-# ==================================================
-# 6. AUTHENTICATION PAGE
-# ==================================================
 
-if not st.session_state.authenticated:
+# =====================================================
+# 6. AUTHENTICATION
+# =====================================================
 
-    st.markdown(
-        "<h1 style='text-align:center'>ور دست ⚡</h1>",
-        unsafe_allow_html=True
-    )
+if st.session_state.user_id is None:
 
-    st.markdown(
-        "<p style='text-align:center'>"
-        "دستیار هوشمند شما"
-        "</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown("""
+    <div class="header-box">
+        <div class="brand">ور دست ⚡</div>
+        <p>دستیار هوشمند، خلاق و همیشه در دسترس</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["ورود به حساب", "ثبت نام"])
+    tab_login, tab_register = st.tabs(["ورود", "ثبت نام"])
 
-    with tab1:
-
+    with tab_login:
         with st.form("login_form"):
-
             username = st.text_input("نام کاربری")
+            password = st.text_input("رمز عبور", type="password")
+            login = st.form_submit_button("ورود به حساب", use_container_width=True)
 
-            password = st.text_input(
-                "رمز عبور",
-                type="password"
-            )
+        if login:
+            uid = login_user(username.strip(), password)
+            if uid:
+                st.session_state.user_id = uid
+                st.session_state.username = username.strip()
 
-            login = st.form_submit_button(
-                "ورود",
-                type="primary",
-                use_container_width=True
-            )
-
-            if login:
-
-                user = authenticate_user(username, password)
-
-                if user:
-
-                    st.session_state.authenticated = True
-                    st.session_state.user_id = user["id"]
-                    st.session_state.username = user["username"]
-                    st.session_state.display_name = user["display_name"]
-
-                    restore_user_data(user)
-
-                    st.rerun()
-
+                chats = get_chats(uid)
+                if chats:
+                    st.session_state.chat_id = chats[0]["id"]
                 else:
-                    st.error("نام کاربری یا رمز عبور اشتباه است.")
+                    st.session_state.chat_id = create_chat(uid)
 
-    with tab2:
+                st.rerun()
+            else:
+                st.error("نام کاربری یا رمز عبور اشتباه است.")
 
+    with tab_register:
         with st.form("register_form"):
+            new_username = st.text_input("نام کاربری جدید")
+            new_password = st.text_input("رمز عبور جدید", type="password")
+            confirm_password = st.text_input("تکرار رمز عبور", type="password")
+            register = st.form_submit_button("ساخت حساب", use_container_width=True)
 
-            display_name = st.text_input("نام شما")
-
-            new_username = st.text_input("نام کاربری")
-
-            new_password = st.text_input(
-                "رمز عبور",
-                type="password"
-            )
-
-            confirm_password = st.text_input(
-                "تکرار رمز عبور",
-                type="password"
-            )
-
-            register = st.form_submit_button(
-                "ساخت حساب",
-                type="primary",
-                use_container_width=True
-            )
-
-            if register:
-
-                if new_password != confirm_password:
-
-                    st.error("رمزهای عبور یکسان نیستند.")
-
-                else:
-
-                    success, message = register_user(
-                        new_username,
-                        display_name,
-                        new_password
-                    )
-
-                    if success:
-                        st.success(message)
-                        st.info("حالا از قسمت ورود وارد حساب خود شوید.")
-                    else:
-                        st.error(message)
+        if register:
+            if len(new_username.strip()) < 3:
+                st.error("نام کاربری باید حداقل ۳ حرف باشد.")
+            elif len(new_password) < 8:
+                st.error("رمز عبور باید حداقل ۸ کاراکتر باشد.")
+            elif new_password != confirm_password:
+                st.error("رمزهای عبور یکسان نیستند.")
+            elif create_user(new_username.strip(), new_password):
+                st.success("حساب ساخته شد. حالا وارد شوید.")
+            else:
+                st.error("این نام کاربری قبلاً استفاده شده است.")
 
     st.stop()
 
-# ==================================================
-# 7. CHAT FUNCTIONS
-# ==================================================
 
-def current_messages():
-    return st.session_state.chats[
-        st.session_state.current_chat
-    ]
-
-def new_chat():
-
-    st.session_state.chat_counter += 1
-
-    name = f"Chat {st.session_state.chat_counter}"
-
-    st.session_state.chats[name] = []
-
-    st.session_state.current_chat = name
-
-    save_user_data()
-
-    st.rerun()
-
-def export_chat(messages):
-
-    result = []
-
-    for message in messages:
-
-        role = "شما" if message["role"] == "user" else "ور دست"
-
-        result.append(
-            f"{role}:\n{message['content']}"
-        )
-
-    return "\n\n--------------------\n\n".join(result)
-
-def read_pdf(file):
-
-    reader = PyPDF2.PdfReader(
-        io.BytesIO(file.getvalue())
-    )
-
-    pages = []
-
-    for page in reader.pages:
-        pages.append(page.extract_text() or "")
-
-    return "\n".join(pages)
-
-def safe_copy(text):
-
-    payload = json.dumps(text, ensure_ascii=False)
-
-    html = f"""
-    <script>
-    navigator.clipboard.writeText({payload})
-        .then(() => console.log("Copied"))
-        .catch(() => console.log("Copy failed"));
-    </script>
-    """
-
-    components.html(html, height=0)
-
-def speak_text(text, language):
-
-    try:
-
-        lang = "fa" if language == "فارسی" else "en"
-
-        url = (
-            "https://translate.google.com/translate_tts?"
-            f"ie=UTF-8&q={urllib.parse.quote(text[:200])}"
-            f"&tl={lang}&client=tw-ob"
-        )
-
-        response = requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=15
-        )
-
-        response.raise_for_status()
-
-        st.audio(
-            io.BytesIO(response.content),
-            format="audio/mp3",
-            autoplay=True
-        )
-
-    except Exception:
-        st.warning("سرویس صوتی در دسترس نیست.")
-
-# ==================================================
-# 8. AI RESPONSE
-# ==================================================
-
-def ask_ai(messages, text, files, tone, temperature):
-
-    if not client:
-        st.error("کلید GROQ_API_KEY تنظیم نشده است.")
-        return None
-
-    system_prompt = f"""
-تو ور دست هستی، یک دستیار هوش مصنوعی دقیق و کاربردی.
-
-قوانین:
-- پاسخ‌ها دقیق و قابل فهم باشند.
-- از Markdown استفاده کن.
-- اگر کاربر فارسی صحبت کرد فارسی پاسخ بده.
-- مثال‌های مفید ارائه بده.
-- لحن پاسخ: {tone}
-- از اطلاعات ساختگی به عنوان واقعیت استفاده نکن.
-"""
-
-    if not text.strip():
-        text = "لطفاً فایل پیوست شده را بررسی کن."
-
-    api_content = [
-        {"type": "text", "text": text}
-    ]
-
-    for file in files:
-
-        try:
-
-            if file.type.startswith("image/"):
-
-                encoded = base64.b64encode(
-                    file.getvalue()
-                ).decode("utf-8")
-
-                api_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{file.type};base64,{encoded}"
-                    }
-                })
-
-            elif file.type == "application/pdf":
-
-                pdf_text = read_pdf(file)
-
-                api_content.append({
-                    "type": "text",
-                    "text": "متن PDF:\n" + pdf_text[:12000]
-                })
-
-        except Exception as error:
-            st.warning(f"خطا در فایل {file.name}: {error}")
-
-    api_messages = [
-        {
-            "role": "system",
-            "content": system_prompt
-        }
-    ]
-
-    for message in messages[:-1]:
-
-        api_messages.append({
-            "role": message["role"],
-            "content": message["content"]
-        })
-
-    api_messages.append({
-        "role": "user",
-        "content": api_content
-    })
-
-    try:
-
-        stream = client.chat.completions.create(
-            model=MODEL,
-            messages=api_messages,
-            temperature=temperature,
-            max_tokens=2000,
-            stream=True
-        )
-
-        return st.write_stream(stream)
-
-    except Exception as error:
-
-        st.error(f"خطای اتصال به هوش مصنوعی: {error}")
-
-        return None
-
-# ==================================================
-# 9. SIDEBAR
-# ==================================================
+# =====================================================
+# 7. SIDEBAR
+# =====================================================
 
 with st.sidebar:
 
-    st.success(
-        f"خوش آمدی {st.session_state.display_name}"
-    )
+    st.markdown("## ⚡ ور دست")
 
-    st.caption(
-        f"حساب: {st.session_state.username}"
-    )
+    st.caption("خوش آمدی، " + st.session_state.username)
 
     st.divider()
 
-    if st.button(
-        "چت جدید",
-        icon=":material/add_circle:",
-        use_container_width=True
-    ):
-        new_chat()
-
-    st.subheader("تاریخچه")
-
-    search_query = st.text_input(
-        "جستجوی گفتگو",
-        placeholder="نام یا متن گفتگو..."
-    )
-
-    for name, messages in list(st.session_state.chats.items()):
-
-        searchable = name + " " + " ".join(
-            m["content"] for m in messages
-        )
-
-        if search_query.lower() in searchable.lower():
-
-            if st.button(
-                name,
-                key=f"select_{name}",
-                type=(
-                    "primary"
-                    if name == st.session_state.current_chat
-                    else "secondary"
-                ),
-                use_container_width=True
-            ):
-
-                st.session_state.current_chat = name
-                st.rerun()
-
-    st.divider()
-
-    language = st.selectbox(
+    st.session_state.language = st.selectbox(
         "زبان",
-        ["فارسی", "English"]
+        ["فارسی", "English"],
+        index=0 if st.session_state.language == "فارسی" else 1
     )
 
-    theme = st.radio(
+    st.session_state.theme = st.radio(
         "تم",
         ["Dark", "Light"],
         horizontal=True
     )
 
-    tone = st.selectbox(
+    st.session_state.tone = st.selectbox(
         "لحن پاسخ",
         ["دوستانه", "حرفه‌ای", "خلاقانه", "مستقیم"]
     )
 
-    temperature = st.slider(
-        "میزان خلاقیت",
-        0.0,
-        1.5,
-        0.7,
-        0.1
+    st.markdown("### میزان خلاقیت")
+
+    st.session_state.creativity = st.slider(
+        "خلاقیت",
+        min_value=0.0,
+        max_value=1.5,
+        value=float(st.session_state.creativity),
+        step=0.1
     )
 
     st.divider()
 
-    st.subheader("مدیریت گفتگو")
+    st.markdown("### مدیریت گفتگو")
 
-    rename = st.text_input(
-        "نام جدید گفتگو"
-    )
-
-    if st.button(
-        "تغییر نام",
-        icon=":material/edit:"
-    ):
-
-        if rename.strip():
-
-            old = st.session_state.current_chat
-            new = rename.strip()
-
-            if new not in st.session_state.chats:
-
-                st.session_state.chats[new] = (
-                    st.session_state.chats.pop(old)
-                )
-
-                st.session_state.current_chat = new
-
-                save_user_data()
-                st.rerun()
-
-            else:
-                st.warning("این نام قبلاً وجود دارد.")
-
-    if st.button(
-        "پاک کردن گفتگو",
-        icon=":material/delete_sweep:",
-        use_container_width=True
-    ):
-
-        st.session_state.chats[
-            st.session_state.current_chat
-        ] = []
-
-        save_user_data()
+    if st.button("➕ گفتگوی جدید", use_container_width=True):
+        st.session_state.chat_id = create_chat(
+            st.session_state.user_id
+        )
         st.rerun()
 
-    if len(st.session_state.chats) > 1:
+    chats = get_chats(st.session_state.user_id)
 
-        if st.button(
-            "حذف کامل این گفتگو",
-            icon=":material/delete:",
-            use_container_width=True
-        ):
+    if chats:
+        chat_options = {c["title"] + f"  #{c['id']}": c["id"] for c in chats}
 
-            del st.session_state.chats[
-                st.session_state.current_chat
-            ]
-
-            st.session_state.current_chat = next(
-                iter(st.session_state.chats)
+        selected_chat = st.selectbox(
+            "تاریخچه گفتگوها",
+            list(chat_options.keys()),
+            index=next(
+                (i for i, c in enumerate(chats)
+                 if c["id"] == st.session_state.chat_id),
+                0
             )
-
-            save_user_data()
-            st.rerun()
-
-    messages = current_messages()
-
-    if messages:
-
-        st.download_button(
-            "دانلود تاریخچه",
-            data=export_chat(messages),
-            file_name="vardast_chat.txt",
-            mime="text/plain",
-            icon=":material/download:",
-            use_container_width=True
         )
 
-    st.divider()
+        new_chat_id = chat_options[selected_chat]
 
-    if st.button(
-        "خروج از حساب",
-        icon=":material/logout:",
-        use_container_width=True
-    ):
+        if new_chat_id != st.session_state.chat_id:
+            st.session_state.chat_id = new_chat_id
+            st.rerun()
 
-        save_user_data()
+    with st.expander("تغییر نام گفتگو"):
+        rename_value = st.text_input("نام جدید", key="rename_input")
 
-        for key in [
-            "authenticated",
-            "user_id",
-            "username",
-            "display_name",
-            "chats",
-            "current_chat",
-            "chat_counter"
-        ]:
-            st.session_state.pop(key, None)
+        if st.button("ذخیره نام"):
+            if rename_value.strip():
+                rename_chat(
+                    st.session_state.chat_id,
+                    st.session_state.user_id,
+                    rename_value.strip()
+                )
+                st.rerun()
 
+    if st.button("🗑️ پاک کردن گفتگو", use_container_width=True):
+        delete_chat(
+            st.session_state.chat_id,
+            st.session_state.user_id
+        )
+        st.session_state.chat_id = create_chat(
+            st.session_state.user_id
+        )
         st.rerun()
 
-# ==================================================
-# 10. THEME
-# ==================================================
+    st.divider()
 
-if theme == "Light":
+    if st.button("خروج از حساب", use_container_width=True):
+        st.session_state.user_id = None
+        st.session_state.username = None
+        st.session_state.chat_id = None
+        st.rerun()
 
+    st.divider()
+
+    st.markdown(
+        f"<div style='text-align:center;color:#999;font-size:12px'>"
+        f"ساخته شده با ❤️ توسط<br><b>{CREATOR}</b></div>",
+        unsafe_allow_html=True
+    )
+
+
+# =====================================================
+# 8. THEME
+# =====================================================
+
+if st.session_state.theme == "Light":
     st.markdown("""
     <style>
     .stApp {
-        background-image:
-        linear-gradient(
-            rgba(248,249,250,.92),
-            rgba(248,249,250,.97)
-        ) !important;
+        background: #f1f3f8 !important;
         color: #222 !important;
     }
-
     [data-testid="stChatMessage"] {
-        background: rgba(255,255,255,.9) !important;
+        background: rgba(255,255,255,.95) !important;
         color: #222 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ==================================================
-# 11. HEADER
-# ==================================================
 
-st.markdown(
-    '<div class="header-style">',
-    unsafe_allow_html=True
-)
+# =====================================================
+# 9. SYSTEM PROMPT
+# =====================================================
 
-st.title("ور دست ⚡")
-st.caption("دستیار هوشمند، رایگان و در دسترس همه")
+if st.session_state.language == "فارسی":
+    language_instruction = "همیشه به فارسی روان پاسخ بده، مگر اینکه کاربر زبان دیگری بخواهد."
+else:
+    language_instruction = "Answer in English unless the user requests another language."
 
-st.markdown(
-    '</div>',
-    unsafe_allow_html=True
-)
 
-# ==================================================
-# 12. QUICK PROMPTS
-# ==================================================
+SYSTEM_PROMPT = f"""
+تو ور دست (Vardast) هستی.
 
-messages = current_messages()
+یک دستیار هوش مصنوعی دقیق، خلاق، مودب و توانمند هستی.
 
-if not messages:
+سازنده تو {CREATOR} است.
 
-    with st.chat_message("assistant", avatar="⚡"):
+قوانین:
+- پاسخ دقیق و کاربردی بده.
+- از Markdown استفاده کن.
+- پاسخ را متناسب با سطح کاربر تنظیم کن.
+- اگر کد خواست، کد کامل و قابل اجرا بده.
+- اگر درخواست تصویر کرد، در انتهای پاسخ یک خط با قالب زیر بنویس:
+IMAGE_GEN: English image prompt
+- برای تولید تصویر، پرامپت دقیق و توصیفی بنویس.
+- اطلاعات ساختگی را به عنوان واقعیت معرفی نکن.
+- به فایل‌های ارسالی با دقت توجه کن.
 
-        st.markdown(
-            "سلام! من ور دست هستم. چطور می‌توانم کمکت کنم؟"
+لحن: {st.session_state.tone}
+{language_instruction}
+"""
+
+
+# =====================================================
+# 10. IMAGE GENERATION
+# =====================================================
+
+def generate_image(prompt):
+    encoded = urllib.parse.quote(prompt)
+
+    return (
+        "https://image.pollinations.ai/prompt/"
+        + encoded
+        + "?width=1024&height=1024&nologo=true"
+    )
+
+
+def show_image(prompt):
+    url = generate_image(prompt)
+
+    try:
+        response = requests.get(
+            url,
+            timeout=90,
+            headers={"User-Agent": "Mozilla/5.0"}
         )
 
-    q1, q2, q3 = st.columns(3)
-
-    if q1.button(
-        "ترجمه",
-        icon=":material/translate:",
-        use_container_width=True
-    ):
-        st.session_state.quick_prompt = "این متن را به انگلیسی ترجمه کن:"
-
-    if q2.button(
-        "برنامه‌نویسی",
-        icon=":material/code:",
-        use_container_width=True
-    ):
-        st.session_state.quick_prompt = "به من برنامه‌نویسی آموزش بده."
-
-    if q3.button(
-        "ایده خلاقانه",
-        icon=":material/lightbulb:",
-        use_container_width=True
-    ):
-        st.session_state.quick_prompt = "چند ایده خلاقانه پیشنهاد بده."
-
-# ==================================================
-# 13. DISPLAY CHAT
-# ==================================================
-
-for i, message in enumerate(messages):
-
-    avatar = "👤" if message["role"] == "user" else "⚡"
-
-    with st.chat_message(
-        message["role"],
-        avatar=avatar
-    ):
-
-        content = message["content"]
-
-        if (
-            message["role"] == "assistant"
-            and "IMAGE_GEN:" in content
-        ):
-
-            parts = content.split("IMAGE_GEN:", 1)
-
-            text_part = parts[0].strip()
-            prompt = parts[1].strip()
-
-            if text_part:
-                st.markdown(text_part)
-
-            image_url = (
-                "https://image.pollinations.ai/prompt/"
-                + urllib.parse.quote(prompt)
-                + "?width=1024&height=1024&nologo=true"
-            )
-
+        if response.status_code == 200 and response.content:
             st.image(
-                image_url,
-                caption="Vardast Image Generator"
+                response.content,
+                caption="ساخته شده توسط ور دست ⚡",
+                use_container_width=True
             )
+            return url
+
+        st.error("سرویس تولید تصویر پاسخ نداد.")
+        return None
+
+    except Exception:
+        st.error("ارتباط با سرویس تصویرسازی برقرار نشد.")
+        return None
+
+
+# =====================================================
+# 11. MAIN HEADER
+# =====================================================
+
+st.markdown("""
+<div class="header-box">
+    <div class="brand">ور دست ⚡</div>
+    <p>دستیار هوشمند، رایگان و در دسترس همه</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# =====================================================
+# 12. QUICK TOOLS
+# =====================================================
+
+st.markdown("### ابزارهای سریع")
+
+q1, q2, q3 = st.columns(3)
+
+with q1:
+    if st.button("🌐 ترجمه", use_container_width=True):
+        st.session_state.pending_prompt = "لطفاً متن زیر را ترجمه کن: "
+
+with q2:
+    if st.button("💻 برنامه نویسی", use_container_width=True):
+        st.session_state.pending_prompt = "در برنامه نویسی به من کمک کن."
+
+with q3:
+    if st.button("💡 ایده خلاقانه", use_container_width=True):
+        st.session_state.pending_prompt = "یک ایده خلاقانه و کاربردی پیشنهاد بده."
+
+
+# =====================================================
+# 13. IMAGE GENERATOR PANEL
+# =====================================================
+
+with st.expander("🎨 استودیوی تولید تصویر", expanded=False):
+
+    image_prompt = st.text_area(
+        "چه تصویری می‌خواهی بسازم؟",
+        placeholder="مثلاً: یک شهر آینده نگر در شب..."
+    )
+
+    if st.button("ساخت تصویر", type="primary"):
+        if image_prompt.strip():
+            with st.spinner("در حال ساخت تصویر..."):
+                url = show_image(image_prompt)
+
+                if url:
+                    save_message(
+                        st.session_state.chat_id,
+                        "assistant",
+                        "IMAGE_RESULT::" + url + "\n" + image_prompt
+                    )
+        else:
+            st.warning("ابتدا توضیح تصویر را بنویس.")
+
+
+# =====================================================
+# 14. VOICE INPUT
+# =====================================================
+
+st.markdown("### 🎙️ ورودی صوتی")
+
+audio_value = st.audio_input("ویس خود را ضبط کن")
+
+if audio_value is not None:
+
+    st.audio(audio_value)
+
+    if st.button("تبدیل ویس به متن"):
+
+        if not client:
+            st.error("کلید API تنظیم نشده است.")
+        else:
+            try:
+                with st.spinner("در حال تبدیل صدا به متن..."):
+
+                    audio_bytes = audio_value.getvalue()
+
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-large-v3-turbo",
+                        file=(
+                            "voice.wav",
+                            audio_bytes,
+                            "audio/wav"
+                        )
+                    )
+
+                    recognized_text = transcript.text
+
+                    st.success("متن شناسایی شده:")
+                    st.write(recognized_text)
+
+                    st.session_state.pending_prompt = recognized_text
+
+            except Exception as e:
+                st.error(f"خطا در تبدیل صدا: {e}")
+
+
+# =====================================================
+# 15. LOAD CHAT HISTORY
+# =====================================================
+
+messages = get_messages(st.session_state.chat_id)
+
+for msg in messages:
+
+    role = msg["role"]
+    content = msg["content"]
+
+    avatar = "👤" if role == "user" else "⚡"
+
+    with st.chat_message(role, avatar=avatar):
+
+        if content.startswith("IMAGE_RESULT::"):
+            parts = content.split("\n", 1)
+            url = parts[0].replace("IMAGE_RESULT::", "")
+            prompt = parts[1] if len(parts) > 1 else ""
+
+            st.caption("تصویر تولید شده")
+            st.image(url, use_container_width=True)
+            st.caption(prompt)
 
         else:
             st.markdown(content)
 
-        if message["role"] == "assistant":
+            if role == "assistant":
+                col1, col2, col3, col4 = st.columns(4)
 
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-            with c1:
-
-                if st.button(
-                    " ",
-                    icon=":material/content_copy:",
-                    key=f"copy_{i}",
-                    help="کپی"
-                ):
-                    safe_copy(content)
-                    st.toast("درخواست کپی ارسال شد.")
-
-            with c2:
-
-                if st.button(
-                    " ",
-                    icon=":material/thumb_up:",
-                    key=f"like_{i}",
-                    help="پسندیدن"
-                ):
-                    st.session_state.feedback[
-                        f"{st.session_state.current_chat}_{i}"
-                    ] = "like"
-
-                    st.toast("ممنون از بازخوردت!")
-
-            with c3:
-
-                if st.button(
-                    " ",
-                    icon=":material/thumb_down:",
-                    key=f"dislike_{i}",
-                    help="نپسندیدن"
-                ):
-                    st.session_state.feedback[
-                        f"{st.session_state.current_chat}_{i}"
-                    ] = "dislike"
-
-                    st.toast("بازخورد ثبت شد.")
-
-            with c4:
-
-                if st.button(
-                    " ",
-                    icon=":material/volume_up:",
-                    key=f"audio_{i}",
-                    help="خواندن صوتی"
-                ):
-                    speak_text(content, language)
-
-            with c5:
-
-                if st.button(
-                    " ",
-                    icon=":material/share:",
-                    key=f"share_{i}",
-                    help="اشتراک گذاری"
-                ):
-                    safe_copy(content)
-                    st.toast("متن برای اشتراک‌گذاری کپی شد.")
-
-            with c6:
-
-                with st.popover(
-                    " ",
-                    icon=":material/more_vert:"
-                ):
-
-                    st.download_button(
-                        "دانلود پاسخ",
-                        data=content,
-                        file_name=f"vardast_answer_{i}.txt",
-                        mime="text/plain"
+                with col1:
+                    st.button(
+                        "📋",
+                        key=f"copy_{msg['id']}",
+                        help="کپی پاسخ"
                     )
 
-                    if i == len(messages) - 1:
+                with col2:
+                    if st.button(
+                        "👍",
+                        key=f"like_{msg['id']}",
+                        help="پسندیدم"
+                    ):
+                        save_feedback(
+                            st.session_state.user_id,
+                            msg["id"],
+                            "like"
+                        )
+                        st.toast("ممنون از بازخوردت!")
 
-                        if st.button(
-                            "تولید مجدد پاسخ",
-                            icon=":material/refresh:"
-                        ):
+                with col3:
+                    if st.button(
+                        "👎",
+                        key=f"dislike_{msg['id']}",
+                        help="نپسندیدم"
+                    ):
+                        save_feedback(
+                            st.session_state.user_id,
+                            msg["id"],
+                            "dislike"
+                        )
+                        st.toast("بازخوردت ثبت شد.")
 
-                            last_user = next(
-                                (
-                                    m["content"]
-                                    for m in reversed(messages[:i])
-                                    if m["role"] == "user"
-                                ),
-                                None
+                with col4:
+                    if st.button(
+                        "🔊",
+                        key=f"voice_{msg['id']}",
+                        help="خواندن پاسخ"
+                    ):
+                        try:
+                            lang = (
+                                "fa" if st.session_state.language == "فارسی"
+                                else "en"
                             )
 
-                            if last_user:
+                            speech = gTTS(
+                                text=content[:4000],
+                                lang=lang
+                            )
 
-                                messages.pop()
-                                save_user_data()
+                            audio_buffer = io.BytesIO()
+                            speech.write_to_fp(audio_buffer)
+                            audio_buffer.seek(0)
 
-                                st.session_state.quick_prompt = last_user
-                                st.rerun()
+                            st.audio(
+                                audio_buffer,
+                                format="audio/mp3"
+                            )
 
-# ==================================================
-# 14. FILE UPLOAD
-# ==================================================
+                        except Exception as e:
+                            st.warning(f"خطا در ساخت صدا: {e}")
+
+
+# =====================================================
+# 16. FILE UPLOAD
+# =====================================================
 
 st.divider()
 
-with st.expander(
-    "پیوست فایل",
-    icon=":material/attach_file:"
-):
-
-    uploaded_files = st.file_uploader(
-        "تصویر یا PDF انتخاب کن",
-        type=["jpg", "jpeg", "png", "pdf"],
-        accept_multiple_files=True
-    )
-
-    if uploaded_files:
-
-        st.success(
-            f"{len(uploaded_files)} فایل انتخاب شد."
-        )
-
-        for file in uploaded_files:
-            st.caption(file.name)
-
-# ==================================================
-# 15. MESSAGE INPUT
-# ==================================================
-
-quick_text = st.session_state.pop(
-    "quick_prompt",
-    ""
+uploaded_files = st.file_uploader(
+    "📎 پیوست فایل (اختیاری)",
+    type=["pdf", "jpg", "jpeg", "png"],
+    accept_multiple_files=True
 )
 
-input_key = f"input_{st.session_state.input_counter}"
+
+# =====================================================
+# 17. CHAT INPUT
+# =====================================================
+
+default_prompt = st.session_state.pending_prompt
+st.session_state.pending_prompt = ""
 
 user_text = st.text_area(
-    "پیام",
-    value=quick_text,
-    height=100,
-    placeholder="پیام خود را بنویسید...",
-    key=input_key,
-    label_visibility="collapsed"
+    "پیام خود را بنویسید",
+    value=default_prompt,
+    height=110,
+    placeholder="پیام خود را اینجا بنویسید..."
 )
 
-send = st.button(
-    "ارسال پیام",
-    icon=":material/send:",
+send_button = st.button(
+    "ارسال پیام 🚀",
     type="primary",
     use_container_width=True
 )
 
-if send:
 
-    if user_text.strip() or uploaded_files:
+# =====================================================
+# 18. PROCESS USER MESSAGE
+# =====================================================
 
-        # Save user message first
+if send_button:
+
+    if not user_text.strip() and not uploaded_files:
+        st.warning("لطفاً پیام یا فایل ارسال کن.")
+
+    elif not client:
+        st.error("کلید GROQ_API_KEY تنظیم نشده است.")
+
+    else:
+
+        api_content = [
+            {
+                "type": "text",
+                "text": user_text.strip() or "فایل ارسالی را تحلیل کن."
+            }
+        ]
+
+        file_notes = []
+
+        for file in uploaded_files or []:
+
+            if file.type.startswith("image/"):
+
+                image_bytes = file.getvalue()
+
+                encoded_image = base64.b64encode(
+                    image_bytes
+                ).decode("utf-8")
+
+                api_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": (
+                            f"data:{file.type};base64,{encoded_image}"
+                        )
+                    }
+                })
+
+            elif file.type == "application/pdf":
+
+                try:
+                    reader = PyPDF2.PdfReader(
+                        io.BytesIO(file.getvalue())
+                    )
+
+                    extracted = "\n".join(
+                        page.extract_text() or ""
+                        for page in reader.pages
+                    )
+
+                    file_notes.append(
+                        "محتوای PDF:\n" + extracted[:12000]
+                    )
+
+                except Exception as e:
+                    file_notes.append(
+                        f"خطا در خواندن PDF: {e}"
+                    )
+
+        if file_notes:
+            api_content.append({
+                "type": "text",
+                "text": "\n\n".join(file_notes)
+            })
 
         display_text = user_text.strip()
 
         if uploaded_files:
             display_text += (
-                f"\n[{len(uploaded_files)} فایل پیوست شد]"
+                f"\n\n[{len(uploaded_files)} فایل پیوست شد]"
             )
 
-        messages = current_messages()
+        save_message(
+            st.session_state.chat_id,
+            "user",
+            display_text
+        )
 
-        messages.append({
+        history = get_messages(st.session_state.chat_id)
+
+        api_messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            }
+        ]
+
+        # محدود کردن تاریخچه ارسالی برای کنترل حجم درخواست
+        for old_msg in history[:-1][-20:]:
+
+            if old_msg["content"].startswith("IMAGE_RESULT::"):
+                continue
+
+            api_messages.append({
+                "role": old_msg["role"],
+                "content": old_msg["content"]
+            })
+
+        api_messages.append({
             "role": "user",
-            "content": display_text
+            "content": api_content
         })
 
-        save_user_data()
+        selected_model = (
+            VISION_MODEL
+            if any(f.type.startswith("image/") for f in uploaded_files or [])
+            else CHAT_MODEL
+        )
 
-        st.session_state.input_counter += 1
-
-        # Show user message
-
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(display_text)
-
-        # Generate AI response
-
-        with st.chat_message("assistant", avatar="⚡"):
+        try:
 
             with st.spinner("ور دست در حال فکر کردن است..."):
 
-                answer = ask_ai(
-                    messages,
-                    user_text,
-                    uploaded_files if uploaded_files else [],
-                    tone,
-                    temperature
+                result = client.chat.completions.create(
+                    model=selected_model,
+                    messages=api_messages,
+                    temperature=float(
+                        st.session_state.creativity
+                    ),
+                    max_tokens=2000
                 )
 
-            if answer:
+                answer = result.choices[0].message.content or ""
 
-                messages.append({
-                    "role": "assistant",
-                    "content": answer
-                })
+                if "IMAGE_GEN:" in answer:
 
-                # Save assistant answer immediately
+                    parts = answer.split("IMAGE_GEN:", 1)
 
-                save_user_data()
+                    text_part = parts[0].strip()
+                    prompt = parts[1].strip()
 
-        st.rerun()
+                    if text_part:
+                        save_message(
+                            st.session_state.chat_id,
+                            "assistant",
+                            text_part
+                        )
 
-# ==================================================
-# 16. FOOTER
-# ==================================================
+                    with st.chat_message(
+                        "assistant",
+                        avatar="⚡"
+                    ):
 
-st.divider()
+                        if text_part:
+                            st.markdown(text_part)
+
+                        with st.spinner("در حال تولید تصویر..."):
+
+                            url = show_image(prompt)
+
+                            if url:
+                                save_message(
+                                    st.session_state.chat_id,
+                                    "assistant",
+                                    "IMAGE_RESULT::" + url + "\n" + prompt
+                                )
+
+                else:
+
+                    save_message(
+                        st.session_state.chat_id,
+                        "assistant",
+                        answer
+                    )
+
+                    with st.chat_message(
+                        "assistant",
+                        avatar="⚡"
+                    ):
+                        st.markdown(answer)
+
+            st.rerun()
+
+        except Exception as e:
+
+            st.error(f"خطا در ارتباط با هوش مصنوعی: {e}")
+
+
+# =====================================================
+# 19. DOWNLOAD CHAT
+# =====================================================
+
+all_messages = get_messages(st.session_state.chat_id)
+
+if all_messages:
+
+    export_text = ""
+
+    for m in all_messages:
+        role = "شما" if m["role"] == "user" else "ور دست"
+
+        if m["content"].startswith("IMAGE_RESULT::"):
+            export_text += role + ":\n[تصویر تولید شده]\n\n"
+        else:
+            export_text += (
+                role + ":\n" + m["content"] + "\n\n"
+            )
+
+    st.divider()
+
+    st.download_button(
+        "📥 دانلود تاریخچه گفتگو",
+        data=export_text,
+        file_name="vardast_chat.txt",
+        mime="text/plain",
+        use_container_width=True
+    )
+
+
+# =====================================================
+# 20. FOOTER
+# =====================================================
 
 st.markdown(
-    """
-    <div class="brand">
-    Vardast AI ⚡ | Your intelligent companion
+    f"""
+    <div style="
+        text-align:center;
+        color:#888;
+        padding:25px;
+        font-size:12px;
+    ">
+        Vardast ⚡ | ساخته شده توسط {CREATOR}
+        <br>
+        Your Smart AI Assistant
     </div>
     """,
     unsafe_allow_html=True
