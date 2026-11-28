@@ -679,51 +679,49 @@ def make_tts(text: str, language_choice: str) -> io.BytesIO:
 # ============================================================
 # 9. IMAGE GENERATION
 # ============================================================
-
 def generate_image(prompt: str) -> bytes:
     clean_prompt = prompt.strip()
     if not clean_prompt:
         raise ValueError("توضیح تصویر خالی است.")
 
-    # ۱. ترجمه پرامپت به انگلیسی اگر فارسی باشد
+    # ترجمه به انگلیسی اگر لازم بود
     if groq:
         try:
             translate_response = groq.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[
-                    {"role": "system", "content": "Translate the following image prompt to English. Only output the English prompt, nothing else."},
+                    {"role": "system", "content": "Translate to English. Output only the prompt."},
                     {"role": "user", "content": clean_prompt}
                 ],
                 temperature=0.3,
                 max_tokens=200
             )
-            translated_prompt = translate_response.choices[0].message.content.strip()
-            if translated_prompt:
-                clean_prompt = translated_prompt
-        except Exception:
-            pass # اگر ترجمه خطا داد، با همون پرامپت اصلی ادامه بده
+            translated = translate_response.choices[0].message.content.strip()
+            if translated:
+                clean_prompt = translated
+        except:
+            pass
 
-    # ۲. ساخت عکس با پرامپت انگلیسی
+    # استفاده از API رسمی با کلید (بدون محدودیت 503)
     encoded_prompt = urllib.parse.quote(clean_prompt, safe="")
-    headers = {}
+    
     if POLLINATIONS_API_KEY:
-        headers["Authorization"] = f"Bearer {POLLINATIONS_API_KEY}"
-        url = (
-            f"https://gen.pollinations.ai/image/{encoded_prompt}"
-            "?model=flux&width=1024&height=1024"
-        )
+        url = f"https://gen.pollinations.ai/image/{encoded_prompt}?model=flux&width=1024&height=1024"
+        headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
     else:
-        url = (
-            f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-            "?width=1024&height=1024&nologo=true"
-        )
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        headers = {}
 
-    response = requests.get(url, headers=headers, timeout=(15, 120))
-    response.raise_for_status()
-    content_type = response.headers.get("content-type", "")
-    if not content_type.startswith("image/"):
-        raise RuntimeError("سرویس تصویرسازی به‌جای تصویر، پاسخ نامعتبر فرستاد.")
-    return response.content
+    for attempt in range(3): # ۳ بار تلاش مجدد
+        try:
+            response = requests.get(url, headers=headers, timeout=(15, 120))
+            if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
+                return response.content
+        except:
+            pass
+        time.sleep(2) # ۲ ثانیه صبر بین تلاش‌ها
+
+    raise RuntimeError("سرویس تصویرسازی فعلاً در دسترس نیست. چند لحظه بعد دوباره تلاش کن.")
 
 
 # ============================================================
