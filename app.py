@@ -543,3 +543,6 @@ st.markdown(
     f"<div class='small-muted' style='text-align:center'>ور دست · ساخته‌شده توسط {CREATOR}</div>",
     unsafe_allow_html=True
 )
+
+
+
