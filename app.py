@@ -32,17 +32,15 @@ GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
-IMAGE_MODEL = os.getenv("POLLINATIONS_IMAGE_MODEL", "black-forest-labs/flux.1-schnell").strip()
 
 SYSTEM_PROMPT = """
 تو «ور دست» هستی؛ یک دستیار هوشمند دقیق، خوش‌برخورد و کاربردی.
 به زبان کاربر پاسخ بده. اگر کاربر فارسی نوشت، فارسی روان و قابل فهم بنویس.
 اگر پاسخ را نمی‌دانی، صادقانه بگو و اطلاعات ساختگی نساز.
-برای آموزش برنامه‌نویسی، مرحله‌به‌مرحله و با مثال توضیح بده.
 """
 
 # ============================================================
-# استایل‌ها (پس‌زمینه تخت جمشید + دکمه‌های مینیمال آیکونی)
+# استایل‌ها (پس‌زمینه تخت جمشید + دکمه‌های مینیمال)
 # ============================================================
 PERSIPOLIS_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Persepolis_24.jpg/1200px-Persepolis_24.jpg"
 
@@ -51,7 +49,7 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
 html, body, [class*="css"] {{ font-family: 'Vazirmatn', sans-serif; }}
 
-/* پس‌زمینه تخت جمشید (مات و تیره) */
+/* پس‌زمینه تخت جمشید */
 .stApp {{
     background-image: linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.95)), url("{PERSIPOLIS_IMAGE}");
     background-size: cover;
@@ -91,7 +89,7 @@ html, body, [class*="css"] {{ font-family: 'Vazirmatn', sans-serif; }}
     color: white !important;
 }}
 
-/* === دکمه‌های مینیمال آیکونی (دقیقاً مثل کد خودت) === */
+/* دکمه‌های مینیمال (کپی، لایک، دیس‌لایک، بلندگو) */
 div[data-testid="stHorizontalBlock"] > div[data-testid="column"] button {{
     background: transparent !important;
     border: none !important;
@@ -155,7 +153,7 @@ def db_ready():
 def show_error(title, err):
     st.error(f"{title}: {str(err)[:500]}")
 
-# ---- Auth ----
+# ---- Auth (با رفع خطای لاگین) ----
 def auth_screen():
     st.markdown(f"""
     <div class="hero">
@@ -166,8 +164,6 @@ def auth_screen():
 
     if supabase is None:
         st.warning("اتصال Supabase هنوز تنظیم نشده است. ابتدا SUPABASE_URL و SUPABASE_ANON_KEY را در Render اضافه کن.")
-        st.code("SUPABASE_URL\nSUPABASE_ANON_KEY")
-        st.info("برای امنیت، کلیدها را در Render وارد کن؛ آن‌ها را در کد یا چت عمومی قرار نده.")
         return
 
     tab_login, tab_signup = st.tabs(["ورود", "ساخت حساب"])
@@ -185,7 +181,13 @@ def auth_screen():
                 st.session_state.messages = []
                 st.rerun()
             except Exception as e:
-                show_error("ورود انجام نشد. ایمیل و رمز را بررسی کن", e)
+                err_msg = str(e)
+                if "invalid_credentials" in err_msg.lower():
+                    st.error("ایمیل یا رمز عبور اشتباه است. اگر تازه ثبت‌نام کرده‌اید، لطفاً ابتدا ایمیل خود را تایید کنید.")
+                elif "email_not_confirmed" in err_msg.lower():
+                    st.error("ایمیل شما تایید نشده است. لطفاً صندوق ایمیل خود را بررسی کنید.")
+                else:
+                    show_error("ورود انجام نشد", e)
 
     with tab_signup:
         with st.form("signup_form"):
@@ -330,6 +332,32 @@ def make_tts(text, lang):
     audio.seek(0)
     return audio
 
+def generate_image_pollinations(prompt):
+    """تولید عکس با سرویس Pollinations (با کلید API یا بدون کلید)"""
+    encoded_prompt = urllib.parse.quote(prompt.strip())
+    
+    # اگر کلید API داریم، از endpoint رسمی استفاده می‌کنیم
+    if POLLINATIONS_API_KEY:
+        try:
+            headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
+            url = f"https://gen.pollinations.ai/image/{encoded_prompt}?model=flux&width=1024&height=1024"
+            response = requests.get(url, headers=headers, timeout=60)
+            if response.status_code == 200:
+                return response.content
+        except:
+            pass
+    
+    # اگر کلید نداریم یا خطا داد، از endpoint ساده استفاده می‌کنیم
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+    try:
+        response = requests.get(url, timeout=60)
+        if response.status_code == 200:
+            return response.content
+    except:
+        pass
+    
+    return None
+
 # ---- Main layout ----
 if not st.session_state.user:
     auth_screen()
@@ -418,7 +446,6 @@ for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg["role"] == "assistant":
-            # === دکمه‌های مینیمال (کپی، لایک، دیس‌لایک، بلندگو) ===
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 8])
             with col1:
                 if st.button("📋", key=f"copy_{i}", help="کپی"):
@@ -457,23 +484,22 @@ if audio_input:
         except Exception as e:
             show_error("تبدیل صدا ناموفق بود", e)
 
-# Image creation panel
+# Image creation panel (رفع مشکل)
 with st.expander("🎨 ساخت تصویر با هوش مصنوعی"):
     image_prompt = st.text_area("چه تصویری بسازم؟", placeholder="مثلاً: یک شهر آینده‌نگر در غروب، سبک سینمایی...")
     if st.button("ساخت تصویر", use_container_width=True):
         if not image_prompt.strip():
             st.warning("ابتدا توضیح تصویر را بنویس.")
         else:
-            with st.spinner("در حال ساخت تصویر..."):
+            with st.spinner("در حال ساخت تصویر... (ممکن است چند ثانیه طول بکشد)"):
                 try:
-                    # استفاده از سرویس Pollinations
-                    encoded_prompt = urllib.parse.quote(image_prompt.strip())
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-                    st.session_state.last_image = img_url
-                    st.image(img_url, caption="تصویر ساخته‌شده", use_container_width=True)
-                    # دانلود عکس
-                    response = requests.get(img_url)
-                    st.download_button("دانلود تصویر", response.content, file_name="vardast_image.png", mime="image/png")
+                    image_bytes = generate_image_pollinations(image_prompt.strip())
+                    if image_bytes:
+                        st.session_state.last_image = image_bytes
+                        st.image(image_bytes, caption="تصویر ساخته‌شده", use_container_width=True)
+                        st.download_button("دانلود تصویر", image_bytes, file_name="vardast_image.png", mime="image/png")
+                    else:
+                        st.error("سرویس تصویرسازی در حال حاضر پاسخ نمی‌دهد. لطفاً چند لحظه دیگر دوباره تلاش کنید.")
                 except Exception as e:
                     show_error("ساخت تصویر انجام نشد", e)
 
