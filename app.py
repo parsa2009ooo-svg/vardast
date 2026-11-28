@@ -685,6 +685,25 @@ def generate_image(prompt: str) -> bytes:
     if not clean_prompt:
         raise ValueError("توضیح تصویر خالی است.")
 
+    # ۱. ترجمه پرامپت به انگلیسی اگر فارسی باشد
+    if groq:
+        try:
+            translate_response = groq.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": "Translate the following image prompt to English. Only output the English prompt, nothing else."},
+                    {"role": "user", "content": clean_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=200
+            )
+            translated_prompt = translate_response.choices[0].message.content.strip()
+            if translated_prompt:
+                clean_prompt = translated_prompt
+        except Exception:
+            pass # اگر ترجمه خطا داد، با همون پرامپت اصلی ادامه بده
+
+    # ۲. ساخت عکس با پرامپت انگلیسی
     encoded_prompt = urllib.parse.quote(clean_prompt, safe="")
     headers = {}
     if POLLINATIONS_API_KEY:
